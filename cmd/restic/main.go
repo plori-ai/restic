@@ -99,6 +99,7 @@ The full documentation can be found at https://restic.readthedocs.io/ .
 		newRestoreCommand(globalOptions),
 		newRewriteCommand(globalOptions),
 		newSnapshotsCommand(globalOptions),
+		newServeReadCommand(globalOptions),
 		newStatsCommand(globalOptions),
 		newTagCommand(globalOptions),
 		newUnlockCommand(globalOptions),
