@@ -296,3 +296,45 @@ func TestServeReadRefreshBound(t *testing.T) {
 	rtest.Equals(t, 404, serveReadRequest(h, "POST", "/prepare", body).Code)
 	rtest.Equals(t, before+2, counted.indexes.Load())
 }
+
+// A retained snapshot must remain readable after prune has repacked all blobs and
+// removed the old packs/indexes, even if prepare has cached its root already.
+func TestServeReadReloadsAfterRepack(t *testing.T) {
+	ctx := context.Background()
+	writer, be := repository.TestRepositoryWithBackend(t, nil, 0, repository.Options{})
+	id, _ := serveReadFixture(t, writer, "retained content after repack")
+	reader := repository.TestOpenBackend(t, be)
+	rtest.OK(t, reader.LoadIndex(ctx, nil))
+	h := newServeReadHandler(reader)
+	rtest.Equals(t, 204, serveReadRequest(h, "POST", "/prepare", `{"snapshot":"`+id.String()+`"}`).Code)
+	var obsolete []backend.Handle
+	for _, typ := range []backend.FileType{backend.PackFile, backend.IndexFile} {
+		rtest.OK(t, be.List(ctx, typ, func(fi backend.FileInfo) error {
+			obsolete = append(obsolete, backend.Handle{Type: typ, Name: fi.Name})
+			return nil
+		}))
+	}
+	blobs := map[restic.BlobHandle][]byte{}
+	rtest.OK(t, writer.ListBlobs(ctx, func(pb restic.PackedBlob) {
+		b, err := writer.LoadBlob(ctx, pb.Type, pb.ID, nil)
+		rtest.OK(t, err)
+		blobs[pb.BlobHandle] = b
+	}))
+	rtest.OK(t, writer.WithBlobUploader(ctx, func(ctx context.Context, up restic.BlobSaverWithAsync) error {
+		for bh, b := range blobs {
+			if _, _, _, err := up.SaveBlob(ctx, bh.Type, b, bh.ID, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	for _, handle := range obsolete {
+		rtest.OK(t, be.Remove(ctx, handle))
+	}
+	w := serveReadRequest(h, "GET", "/file?snapshot="+id.String()+"&path=/dir/file", "")
+	rtest.Equals(t, 200, w.Code)
+	rtest.Equals(t, "retained content after repack", w.Body.String())
+	// Metadata blobs also use the same retry path (discard the immutable cache).
+	h.cache = newServeReadHandler(reader).cache
+	rtest.Equals(t, 200, serveReadRequest(h, "GET", "/walk?snapshot="+id.String(), "").Code)
+}

@@ -131,7 +131,21 @@ func (s *serveReadHandler) LoadBlob(ctx context.Context, typ restic.BlobType, id
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return s.cache.GetOrCompute(id, func() ([]byte, error) { return s.repo.LoadBlob(ctx, typ, id, nil) })
+	return s.cache.GetOrCompute(id, func() ([]byte, error) {
+		blob, err := s.repo.LoadBlob(ctx, typ, id, nil)
+		if err == nil || ctx.Err() != nil {
+			return blob, err
+		}
+		// A --no-lock reader can retain pack locations removed by prune. The
+		// upstream incremental loader resets its index when old indexes disappear
+		// (internal/repository/index/master_index.go:prepareIncrementalLoad).
+		// Repository errors are not typed, so retry once after any failed blob
+		// load; authentication/hash validation still happens in LoadBlob.
+		if err = s.repo.LoadIndex(ctx, nil); err != nil {
+			return nil, err
+		}
+		return s.repo.LoadBlob(ctx, typ, id, nil)
+	})
 }
 
 func (s *serveReadHandler) prepare(ctx context.Context, id restic.ID) (restic.ID, error) {
