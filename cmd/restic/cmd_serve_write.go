@@ -18,6 +18,7 @@ import (
 	"github.com/restic/restic/internal/restic"
 	"github.com/restic/restic/internal/ui"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 // treeWriteVersion is the socket protocol version of doc/plori-tree-write.md.
@@ -117,12 +118,12 @@ type serveWriteServer struct {
 }
 
 func newServeWriteServer(ctx context.Context, open repoOpener, cfg serveWriteConfig) (*serveWriteServer, error) {
-	repo, err := open(ctx, false)
-	if err != nil {
-		return nil, err
-	}
-	vrepo, err := open(ctx, true)
-	if err != nil {
+	// Each open derives the key (scrypt); both run at once.
+	var repo, vrepo *repository.Repository
+	var g errgroup.Group
+	g.Go(func() (err error) { repo, err = open(ctx, false); return err })
+	g.Go(func() (err error) { vrepo, err = open(ctx, true); return err })
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 	w := newServeWriteHandler(repo, cfg)
@@ -199,7 +200,9 @@ func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch r.URL.Path {
 	case "/prepare-write":
-		err = decodeStrict(r.Body, &prep)
+		if err = decodeStrict(r.Body, &prep); err == nil && prep.Version != treeWriteVersion {
+			err = errUnsupportedVersion
+		}
 	case "/tree-write":
 		if err = decodeStrict(r.Body, &req); err == nil {
 			err = req.validate(s.cfg, true)

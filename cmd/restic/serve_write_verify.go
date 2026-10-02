@@ -281,19 +281,23 @@ func (s *serveWriteHandler) verifySnapshots(ctx context.Context, req *treeWriteR
 	return sameSnapshot("public", pub, want, res.Public.Tree)
 }
 
+// loadSnapshot reads a snapshot from the backend (the verifier has no
+// cache). Only a failed read lists the snapshots, to tell a missing snapshot
+// from a backend failure.
 func (s *serveWriteHandler) loadSnapshot(ctx context.Context, role string, id restic.ID) (*data.Snapshot, error) {
+	sn, err := data.LoadSnapshot(ctx, s.repo, id)
+	if err == nil {
+		return sn, nil
+	}
 	found := false
-	err := s.repo.List(ctx, restic.SnapshotFile, func(c restic.ID, _ int64) error {
+	listErr := s.repo.List(ctx, restic.SnapshotFile, func(c restic.ID, _ int64) error {
 		found = found || c == id
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	if !found {
+	if listErr == nil && !found {
 		return nil, mismatch("snapshot_missing", "%s snapshot %v", role, id.Str())
 	}
-	return data.LoadSnapshot(ctx, s.repo, id)
+	return nil, err
 }
 
 func sameSnapshot(role string, got, want *data.Snapshot, tree string) error {

@@ -652,7 +652,11 @@ func TestServeWriteRequestValidation(t *testing.T) {
 	rtest.Equals(t, 0, f.countFiles(restic.LockFile))
 	rtest.Equals(t, 1, f.countFiles(restic.SnapshotFile))
 
-	w := serveReadRequest(f.srv, http.MethodGet, "/version", "")
+	w := serveReadRequest(f.srv, http.MethodPost, "/prepare-write", fmt.Sprintf(`{"version":2,"base":{"snapshot":%q}}`, base))
+	rtest.Assert(t, w.Code == http.StatusBadRequest && strings.Contains(w.Body.String(), "unsupported_version"), "prepare-write version: %d %s", w.Code, w.Body.String())
+	w = serveReadRequest(f.srv, http.MethodPost, "/prepare-write", fmt.Sprintf(`{"version":1,"base":{"snapshot":%q}}`, base))
+	rtest.Equals(t, http.StatusOK, w.Code)
+	w = serveReadRequest(f.srv, http.MethodGet, "/version", "")
 	rtest.Equals(t, http.StatusOK, w.Code)
 	var v versionResponse
 	rtest.OK(t, json.Unmarshal(w.Body.Bytes(), &v))

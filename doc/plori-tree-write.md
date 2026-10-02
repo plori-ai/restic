@@ -53,6 +53,11 @@ credential or a host path: the process configuration does.
   repository again in the same process. Packs that the failed request stored
   without an index entry are orphans that prune removes.
 
+- Start-up opens the repository twice at the same time (writer and verifier
+  handles, each with its own key derivation) and loads the writer's index. On
+  the 290k-entry local test repository the socket was ready after 0.66–0.68 s,
+  as with `serve-read`.
+
 ## Versioning
 
 Every request body carries `"version": 1`. Another version is refused with 400
@@ -229,8 +234,9 @@ writer holds. It answers `{"version":1,"ok":true,"timings_ms":{...}}` or
    content blob below them must be in the index (`blob_missing`,
    `tree_unreadable`), the counts must equal the result (`count_mismatch`), and
    the twin may not contain an excluded name (`projection_mismatch`).
-5. Both snapshots are in a fresh backend listing and are loaded from the backend
-   (`snapshot_missing`). Tree, parent (base for the head, head for the twin),
+5. Both snapshots are loaded by ID from the backend; when a load fails, a
+   backend listing tells a missing snapshot (`snapshot_missing`) from a backend
+   failure. Tree, parent (base for the head, head for the twin),
    host name, paths and tags must equal what the request writes, and the head
    summary must record `data_added` and `data_added_packed`
    (`snapshot_mismatch`).
