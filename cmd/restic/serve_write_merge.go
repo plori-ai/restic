@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path"
@@ -86,55 +83,36 @@ func (s *serveWriteHandler) validateEntries(entries []mergeEntry) error {
 	return nil
 }
 
-// mergeWrite writes a snapshot whose tree is exactly the merged entry list. A
-// name whose base node matches the entry (kind, content, link group, target)
-// keeps that native node with every field; mode and owner follow the entry
-// and the worker identity, as the helper's setMetadata sets them. Every other
-// node is synthesized with a new inode; the names of a new link group share
-// one. Content comes from the base and source snapshots by the entry's blob
-// token, or from an inline diff3 blob keyed by its byte SHA-256.
-func (s *serveWriteHandler) mergeWrite(ctx context.Context, req *writeRequest) (*writeResponse, error) {
-	start := time.Now()
-	if req.OpID == "" {
-		return nil, invalidf("op_id is required")
-	}
-	if err := s.validateEntries(req.Entries); err != nil {
-		return nil, err
-	}
-	baseSn, baseRoot, err := s.base(ctx, req.Base)
-	if err != nil {
-		return nil, err
+// mergeWrite builds the tree of exactly the merged entry list. A name whose
+// base node matches the entry (kind, content, link group, target) keeps that
+// native node with every field; mode and owner follow the entry and the
+// request owner, as the helper's setMetadata sets them. Every other node is
+// synthesized with a new inode; the names of a new link group share one.
+// Content comes from the base and source snapshots by the entry's blob token,
+// or from a request content whose SHA-256 is the entry's digest.
+func (s *serveWriteHandler) mergeWrite(ctx context.Context, req *treeWriteRequest, contents []contentItem, baseRoot restic.ID, marks map[string]float64) (restic.ID, error) {
+	if err := s.validateEntries(req.Merge.Entries); err != nil {
+		return restic.ID{}, err
 	}
 	var sources []restic.ID
-	for _, id := range req.Sources {
-		_, root, err := s.base(ctx, id)
+	for _, src := range req.Merge.Sources {
+		_, root, err := s.base(ctx, src)
 		if err != nil {
-			return nil, err
+			return restic.ID{}, err
 		}
-		sources = append(sources, root)
+		if !root.IsNull() {
+			sources = append(sources, root)
+		}
 	}
-	resp := &writeResponse{TimingsMS: map[string]float64{"load": since(start)}}
-	b := &mergeBuild{s: s, req: req, sources: sources, children: map[string][]*data.Node{}, dirNodes: map[string]*data.Node{}, synth: map[string]*data.Node{},
-		same: map[*data.Node]bool{}, groupSize: map[string]int{}, marks: resp.TimingsMS}
-	root, err := b.build(ctx, baseRoot)
-	if err != nil {
-		return nil, err
-	}
-	f, err := s.check(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	resp.TimingsMS["build"] = since(start)
-	if err = s.upload(ctx, f); err != nil {
-		return nil, err
-	}
-	resp.TimingsMS["flush"] = since(start)
-	return s.snapshots(ctx, req, baseSn, f, start, resp)
+	b := &mergeBuild{s: s, req: req, contents: contents, sources: sources, children: map[string][]*data.Node{}, dirNodes: map[string]*data.Node{}, synth: map[string]*data.Node{},
+		same: map[*data.Node]bool{}, groupSize: map[string]int{}, marks: marks}
+	return b.build(ctx, baseRoot)
 }
 
 type mergeBuild struct {
 	s        *serveWriteHandler
-	req      *writeRequest
+	req      *treeWriteRequest
+	contents []contentItem
 	base     *editTree
 	sources  []restic.ID
 	children map[string][]*data.Node
@@ -165,8 +143,7 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 		return restic.ID{}, err
 	}
 	ino := st.maxInode
-	owner := b.req.owner()
-	b.base = s.newEditTree(baseRoot, time.Now(), owner, &ino)
+	b.base = s.newEditTree(baseRoot, b.req.now, *b.req.Owner, &ino)
 	// Base directories are decoded without the round-trip guard; the guard
 	// runs on each base directory whose nodes are encoded again below.
 	b.base.noGuard = true
@@ -179,7 +156,7 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 		}
 		labels[key] = groupToken(rels)
 	}
-	entries := append([]mergeEntry(nil), b.req.Entries...)
+	entries := append([]mergeEntry(nil), b.req.Merge.Entries...)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	for _, e := range entries {
 		if e.LinkGroup != "" {
@@ -336,7 +313,7 @@ func sameNames(old map[string]*data.Node, nodes []*data.Node) bool {
 // policy gives a retained node the entry's mode and the worker owner; a change
 // sets ctime, as chmod/chown do.
 func (b *mergeBuild) policy(n *data.Node, e *mergeEntry) bool {
-	owner := b.req.owner()
+	owner := *b.req.Owner
 	mode := unixMode(e.Mode)
 	changed := n.UID != owner[0] || n.GID != owner[1]
 	if n.Type != data.NodeTypeSymlink && modeBits(n.Mode) != mode {
@@ -357,7 +334,7 @@ func (b *mergeBuild) policy(n *data.Node, e *mergeEntry) bool {
 
 func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, keep bool, device uint64) (*data.Node, error) {
 	t := b.base
-	owner := b.req.owner()
+	owner := *b.req.Owner
 	var parent *data.Node
 	if q := dirOf(e.Path); q != "" {
 		parent = b.dirNodes[q]
@@ -422,15 +399,15 @@ func symlinkTarget(n *data.Node) string {
 // else by a full walk of the sources, and every blob must be indexed with
 // sizes that sum to the entry size.
 func (b *mergeBuild) content(ctx context.Context, e *mergeEntry, base *data.Node) (restic.IDs, error) {
-	if blob, ok := b.req.Blobs[e.Digest]; ok {
-		sum := sha256.Sum256(blob)
-		if hex.EncodeToString(sum[:]) != e.Digest || int64(len(blob)) != e.Size {
-			return nil, invalidf("inline blob digest of %q", e.Path)
-		}
-		ids, _, err := b.s.hashContent(ctx, bytes.NewReader(blob))
-		return ids, err
-	}
 	if !strings.HasPrefix(e.Digest, "restic:") {
+		for _, c := range b.contents {
+			if c.sha256 == e.Digest {
+				if c.size != uint64(e.Size) {
+					return nil, invalidf("content size of %q", e.Path)
+				}
+				return append(restic.IDs{}, c.ids...), nil
+			}
+		}
 		return nil, invalidf("no content for %q", e.Path)
 	}
 	var ids restic.IDs

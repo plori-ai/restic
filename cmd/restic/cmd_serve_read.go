@@ -65,7 +65,7 @@ func serveReadSocket(socket string) (net.Listener, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	temporary := filepath.Join(dir, "s")
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: temporary, Net: "unix"})
 	if err != nil {

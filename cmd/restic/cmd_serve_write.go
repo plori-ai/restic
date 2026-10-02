@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,196 +9,178 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sort"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/restic/chunker"
-	"github.com/restic/restic/internal/data"
 	"github.com/restic/restic/internal/global"
 	"github.com/restic/restic/internal/repository"
 	"github.com/restic/restic/internal/restic"
 	"github.com/restic/restic/internal/ui"
-	"github.com/restic/restic/internal/walker"
 	"github.com/spf13/cobra"
 )
 
-const (
-	serveWriteBodyLimit  = 96 << 20
-	serveWriteStatsLimit = 1 << 21
-	defaultOwner         = 65532
-)
+// treeWriteVersion is the socket protocol version of doc/plori-tree-write.md.
+// A request with another version is refused.
+const treeWriteVersion = 1
 
-// defaultPublicExcludes is what a public twin leaves out at every depth: the
-// helper's publicExcludes (storagewire.WorkspacePrivateNames plus lost+found
-// and NFS silly-rename names), matched case-insensitively per name.
-func defaultPublicExcludes() []string {
-	return []string{"lost+found", ".nfs*", ".forge", ".trash", ".plori-trash", ".plori-workspace",
-		".control", ".config", ".jfs", ".stats", ".accesslog"}
+type serveWriteConfig struct {
+	// excludes are the name patterns a public twin leaves out at every depth.
+	excludes []string
+	// trashDir is the root directory name the trash, restore and empty-trash
+	// edits use; those edits are refused when it is empty.
+	trashDir string
+	// maxRequest bounds a tree-write or verify-write request body.
+	maxRequest int64
 }
+
+// repoOpener opens the repository. The verifier handle must not use the local
+// cache: restic's cache stores the tree packs this process writes.
+type repoOpener func(ctx context.Context, verifier bool) (*repository.Repository, error)
 
 func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 	var socket string
-	var excludes []string
-	var lockPerRequest bool
+	cfg := serveWriteConfig{}
 	cmd := &cobra.Command{Use: "serve-write --socket PATH", Short: "Serve snapshot reads and tree-native snapshot writes over a private Unix socket", GroupID: cmdGroupAdvanced, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if socket == "" {
 				return errors.New("--socket is required")
 			}
+			if gopts.NoLock {
+				return errors.New("serve-write takes a lock for each write request; --no-lock is not supported")
+			}
+			if cfg.maxRequest < 1<<20 {
+				return errors.New("--max-request-bytes must be at least 1 MiB")
+			}
+			for _, p := range append([]string{cfg.trashDir}, cfg.excludes...) {
+				if err := checkName(p); p != "" && err != nil {
+					return err
+				}
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			printer := ui.NewProgressPrinter(false, gopts.Verbosity, gopts.Term)
-			var repo *repository.Repository
-			var err error
-			if lockPerRequest {
-				repo, err = global.OpenRepository(ctx, *gopts, printer)
-			} else {
-				var unlock func()
-				ctx, repo, unlock, err = openWithAppendLock(ctx, *gopts, false, printer)
-				if err == nil {
-					defer unlock()
+			open := func(ctx context.Context, verifier bool) (*repository.Repository, error) {
+				opts := *gopts
+				if verifier {
+					opts.NoCache = true
 				}
+				repo, err := global.OpenRepository(ctx, opts, printer)
+				if err != nil {
+					return nil, err
+				}
+				if !verifier {
+					err = repo.LoadIndex(ctx, printer)
+				}
+				return repo, err
 			}
+			srv, err := newServeWriteServer(ctx, open, cfg)
 			if err != nil {
 				return err
 			}
-			if err = repo.LoadIndex(ctx, printer); err != nil {
-				return err
-			}
-			h := newServeWriteHandler(repo, excludes)
-			h.lockPerRequest = lockPerRequest
-			if err := serveReadListen(ctx, socket, h); err != nil {
+			err = serveReadListen(ctx, socket, srv)
+			// Requests were canceled with ctx; wait until each write released
+			// its repository lock.
+			srv.drain()
+			if err != nil {
 				return err
 			}
 			return ErrOK
 		}}
 	cmd.Flags().StringVar(&socket, "socket", "", "platform Unix socket `path` (mode 0600)")
-	cmd.Flags().BoolVar(&lockPerRequest, "lock-per-request", false, "hold no lock while idle; take a shared repository lock for each write request")
-	cmd.Flags().StringArrayVar(&excludes, "public-exclude", defaultPublicExcludes(), "name `pattern` the public twin leaves out at every depth")
+	cmd.Flags().StringArrayVar(&cfg.excludes, "public-exclude", nil, "name `pattern` the public twin leaves out at every depth (path.Match, case-insensitive; repeatable)")
+	cmd.Flags().StringVar(&cfg.trashDir, "trash-dir", "", "root directory `name` for the trash, restore and empty-trash edits")
+	cmd.Flags().Int64Var(&cfg.maxRequest, "max-request-bytes", 96<<20, "maximum tree-write or verify-write request body `size`")
 	return cmd
 }
 
-type serveWriteHandler struct {
-	*serveReadHandler
-	excludes []string
-	stats    map[restic.ID]*treeStats
-	statsMu  sync.Mutex
-	walkers  chan struct{}
-	public   *walker.TreeRewriter
-	// pending and pendingData hold the tree and data blobs of the current
-	// request. A request computes its whole result before it saves anything,
-	// so a refusal or a malformed edit leaves the repository untouched.
-	pending     map[restic.ID][]byte
-	pendingData map[restic.ID][]byte
-	tokens      map[restic.ID]map[string]restic.IDs
-	// broken is set when an upload failed: upstream's WithBlobUploader does
-	// not reset the repository after an error, so the process must restart.
+// serveWriteServer routes the socket's requests. Reads use the writer
+// engine's repository without a lock. Each write takes upstream's shared
+// (append) lock and refreshes the index under it. Verification uses a second
+// repository handle with its own index and caches.
+type serveWriteServer struct {
+	open repoOpener
+	cfg  serveWriteConfig
+	// w writes and serves reads; v replays and verifies. Their state is used
+	// only while holding w.gate, which serializes every request.
+	w, v *serveWriteHandler
+	// broken is set when an upload failed: upstream's WithBlobUploader keeps
+	// its uploader state after an error, so the next write opens the
+	// repository again.
 	broken bool
-	// lockPerRequest takes upstream's shared lock (restic.NewLock, which
-	// waits 200 ms between its two lock checks) around each write request.
-	lockPerRequest bool
-	// snapshotsSeen and snapshotIDs keep loaded and written snapshots.
-	snapshotsSeen map[restic.ID]*data.Snapshot
-	snapshotIDs   map[*data.Snapshot]restic.ID
+	// lockRepo is repository.Lock; tests replace it.
+	lockRepo func(ctx context.Context, repo *repository.Repository) (func(), context.Context, error)
+
+	mu       sync.Mutex
+	draining bool
+	inflight sync.WaitGroup
 }
 
-func newServeWriteHandler(repo *repository.Repository, excludes []string) *serveWriteHandler {
-	s := &serveWriteHandler{serveReadHandler: newServeReadHandler(repo), excludes: excludes,
-		stats: map[restic.ID]*treeStats{}, walkers: make(chan struct{}, 8), pending: map[restic.ID][]byte{}, pendingData: map[restic.ID][]byte{}, tokens: map[restic.ID]map[string]restic.IDs{},
-		snapshotsSeen: map[restic.ID]*data.Snapshot{}, snapshotIDs: map[*data.Snapshot]restic.ID{}}
-	s.resetProjection()
-	return s
-}
-
-// resetProjection starts a new public projection. Its node cache maps a tree
-// ID to the ID of the tree without private names; the projection depends only
-// on the tree, so the cache serves every later head.
-func (s *serveWriteHandler) resetProjection() {
-	s.public = walker.NewTreeRewriter(walker.RewriteOpts{RewriteNode: func(n *data.Node, _ string) *data.Node {
-		if s.excluded(n.Name) {
-			return nil
-		}
-		return n
-	}, KeepSubtree: func(id restic.ID, _ string) bool {
-		// A subtree without a private name at any depth projects to itself.
-		st, ok := s.cachedStats(id)
-		return ok && st.entries == st.pubEntries
-	}})
-}
-
-// LoadBlob serves trees this request encoded but has not saved yet.
-func (s *serveWriteHandler) LoadBlob(ctx context.Context, typ restic.BlobType, id restic.ID, buf []byte) ([]byte, error) {
-	if typ == restic.TreeBlob {
-		if b, ok := s.pending[id]; ok {
-			return b, nil
-		}
+func newServeWriteServer(ctx context.Context, open repoOpener, cfg serveWriteConfig) (*serveWriteServer, error) {
+	repo, err := open(ctx, false)
+	if err != nil {
+		return nil, err
 	}
-	return s.serveReadHandler.LoadBlob(ctx, typ, id, buf)
+	vrepo, err := open(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	w := newServeWriteHandler(repo, cfg)
+	v := newServeWriteHandler(vrepo, cfg)
+	v.verifier = true
+	return &serveWriteServer{open: open, cfg: cfg, w: w, v: v, lockRepo: func(ctx context.Context, repo *repository.Repository) (func(), context.Context, error) {
+		lock, ctx, err := repository.Lock(ctx, repo, false, 0, func(string) {}, func(string, ...interface{}) {})
+		if err != nil {
+			return nil, ctx, err
+		}
+		return lock.Unlock, ctx, nil
+	}}, nil
 }
 
-type writeEdit struct {
-	Op           string  `json:"op"`
-	Path         string  `json:"path"`
-	To           string  `json:"to,omitempty"`
-	Trash        string  `json:"trash,omitempty"`
-	Data         []byte  `json:"data,omitempty"`
-	Source       string  `json:"source,omitempty"`
-	Mode         uint32  `json:"mode,omitempty"`
-	ExpectedETag *uint64 `json:"expected_etag,omitempty"`
+// begin registers a write or verify request; it fails once draining started.
+func (s *serveWriteServer) begin() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.draining {
+		return false
+	}
+	s.inflight.Add(1)
+	return true
 }
 
-type mergeEntry struct {
-	Path      string `json:"path"`
-	Kind      string `json:"kind"`
-	Mode      uint32 `json:"mode"`
-	Size      int64  `json:"size"`
-	Digest    string `json:"digest,omitempty"`
-	Target    string `json:"target,omitempty"`
-	LinkGroup string `json:"link_group,omitempty"`
+// drain refuses new requests and waits for the running ones, which release
+// their locks before they return.
+func (s *serveWriteServer) drain() {
+	s.mu.Lock()
+	s.draining = true
+	s.mu.Unlock()
+	s.inflight.Wait()
 }
 
-type writeRequest struct {
-	Snapshot string            `json:"snapshot,omitempty"`
-	Base     string            `json:"base,omitempty"`
-	OpID     string            `json:"op_id,omitempty"`
-	CopyID   string            `json:"copy_id,omitempty"`
-	Paths    []string          `json:"paths,omitempty"`
-	Owner    *[2]uint32        `json:"owner,omitempty"`
-	Edits    []writeEdit       `json:"edits,omitempty"`
-	Entries  []mergeEntry      `json:"entries,omitempty"`
-	Sources  []string          `json:"sources,omitempty"`
-	Blobs    map[string][]byte `json:"blobs,omitempty"`
+type versionResponse struct {
+	Protocol  string   `json:"protocol"`
+	Version   int      `json:"version"`
+	Restic    string   `json:"restic"`
+	Endpoints []string `json:"endpoints"`
+	TrashDir  string   `json:"trash_dir,omitempty"`
+	Excludes  []string `json:"public_excludes"`
 }
 
-type snapshotReceipt struct {
-	Snapshot     string `json:"snapshot"`
-	Tree         string `json:"tree"`
-	Entries      uint64 `json:"entries"`
-	LogicalBytes uint64 `json:"logical_bytes"`
-}
-
-type editReceipt struct {
-	Path string `json:"path,omitempty"`
-	ETag uint64 `json:"etag,omitempty"`
-}
-
-type writeResponse struct {
-	Empty                bool               `json:"empty"`
-	Head                 *snapshotReceipt   `json:"head,omitempty"`
-	Public               *snapshotReceipt   `json:"public,omitempty"`
-	PublicEmpty          bool               `json:"public_empty"`
-	IncompleteLinkGroups []string           `json:"incomplete_link_groups,omitempty"`
-	Edits                []editReceipt      `json:"edits,omitempty"`
-	TimingsMS            map[string]float64 `json:"timings_ms"`
-}
-
-func (s *serveWriteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
-	case "/prepare-write", "/edit", "/merge-write":
+	case "/version":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			serveReadError(w, 405)
+			return
+		}
+		writeJSON(w, http.StatusOK, versionResponse{Protocol: "tree-write", Version: treeWriteVersion, Restic: global.Version,
+			Endpoints: []string{"/version", "/prepare-write", "/tree-write", "/verify-write", "/prepare", "/tree", "/walk", "/file", "/snapshots"},
+			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...)})
+		return
+	case "/prepare-write", "/tree-write", "/verify-write":
 	default:
-		s.serveReadHandler.ServeHTTP(w, r)
+		s.w.serveReadHandler.ServeHTTP(w, r)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -207,430 +188,163 @@ func (s *serveWriteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		serveReadError(w, 405)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, serveWriteBodyLimit)
-	var req writeRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if dec.Decode(&req) != nil {
-		serveReadError(w, 400)
+	limit := s.cfg.maxRequest
+	if r.URL.Path == "/prepare-write" {
+		limit = 4096
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	var prep prepareWriteRequest
+	var req treeWriteRequest
+	var vreq verifyWriteRequest
+	var err error
+	switch r.URL.Path {
+	case "/prepare-write":
+		err = decodeStrict(r.Body, &prep)
+	case "/tree-write":
+		if err = decodeStrict(r.Body, &req); err == nil {
+			err = req.validate(s.cfg, true)
+		}
+	case "/verify-write":
+		if err = decodeStrict(r.Body, &vreq); err == nil {
+			err = vreq.validate(s.cfg)
+		}
+	}
+	if err != nil {
+		writeFailure(w, err)
 		return
 	}
-	var extra any
-	if dec.Decode(&extra) != io.EOF {
-		serveReadError(w, 400)
+	if !s.begin() {
+		writeJSON(w, http.StatusServiceUnavailable, failureBody{Code: "draining"})
 		return
 	}
+	defer s.inflight.Done()
+	gate := s.w.gate
 	select {
-	case s.gate <- struct{}{}:
-		defer func() { <-s.gate }()
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
 	case <-r.Context().Done():
 		return
 	}
-	if s.broken {
-		serveReadError(w, http.StatusServiceUnavailable)
+	ctx := r.Context()
+	if ctx.Err() != nil {
 		return
 	}
-	var resp *writeResponse
-	var err error
-	ctx := r.Context()
-	lockStart := time.Now()
-	if s.lockPerRequest && r.URL.Path != "/prepare-write" {
-		var lock *repository.Unlocker
-		lock, ctx, err = repository.Lock(ctx, s.repo, false, 0, func(string) {}, func(string, ...interface{}) {})
-		if err != nil {
-			http.Error(w, "repository locked", http.StatusServiceUnavailable)
-			return
-		}
-		defer lock.Unlock()
-	}
-	lockMS := since(lockStart)
 	switch r.URL.Path {
 	case "/prepare-write":
-		resp, err = s.prepareWrite(ctx, &req)
-	case "/edit":
-		resp, err = s.edit(ctx, &req)
-	case "/merge-write":
-		resp, err = s.mergeWrite(ctx, &req)
-	}
-	if resp != nil && s.lockPerRequest {
-		resp.TimingsMS["lock"] = lockMS
-	}
-	clear(s.pending)
-	clear(s.pendingData)
-	var refusal *writeRefusal
-	switch {
-	case errors.As(err, &refusal):
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(refusal)
-		return
-	case errors.Is(err, errInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	case errors.Is(err, os.ErrNotExist):
-		serveReadError(w, 404)
-		return
-	case err != nil:
-		// The projection cache may map trees to projections that were
-		// never saved.
-		s.resetProjection()
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		_, _ = fmt.Fprintf(os.Stderr, "serve-write: %v\n", err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// base loads a full snapshot ID, or the empty tree for "". Snapshots this
-// process wrote or loaded are kept, so a chain of edits reads no snapshot
-// file and never refreshes the index.
-func (s *serveWriteHandler) base(ctx context.Context, selector string) (*data.Snapshot, restic.ID, error) {
-	if selector == "" {
-		return nil, restic.ID{}, nil
-	}
-	id, err := restic.ParseID(selector)
-	if err != nil {
-		return nil, restic.ID{}, invalidf("snapshot %q", selector)
-	}
-	if sn, ok := s.snapshotsSeen[id]; ok {
-		return sn, *sn.Tree, nil
-	}
-	sn, err := data.LoadSnapshot(ctx, s.repo, id)
-	if err != nil {
-		// serve-read's prepare refreshes the index once and maps a missing
-		// snapshot to os.ErrNotExist.
-		if _, err = s.prepare(ctx, id); err != nil {
-			return nil, restic.ID{}, err
+		var resp *treeWriteResponse
+		if resp, err = s.w.prepareWrite(ctx, prep.Base); err == nil {
+			writeJSON(w, http.StatusOK, resp)
+			return
 		}
-		if sn, err = data.LoadSnapshot(ctx, s.repo, id); err != nil {
-			return nil, restic.ID{}, err
+	case "/tree-write":
+		var resp *treeWriteResponse
+		if resp, err = s.treeWrite(ctx, &req); err == nil {
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+	case "/verify-write":
+		var resp *verifyWriteResponse
+		if resp, err = s.v.verifyWrite(ctx, &vreq); err == nil {
+			writeJSON(w, http.StatusOK, resp)
+			return
 		}
 	}
-	if sn.Tree == nil {
-		return nil, restic.ID{}, errors.New("snapshot has no tree")
-	}
-	s.rememberSnapshot(id, sn)
-	return sn, *sn.Tree, nil
+	writeFailure(w, err)
 }
 
-func (s *serveWriteHandler) rememberSnapshot(id restic.ID, sn *data.Snapshot) {
-	if len(s.snapshotsSeen) >= 1024 {
-		clear(s.snapshotsSeen)
-		clear(s.snapshotIDs)
-	}
-	s.snapshotsSeen[id] = sn
-	s.snapshotIDs[sn] = id
-}
-
-func (r *writeRequest) owner() [2]uint32 {
-	if r.Owner != nil {
-		return *r.Owner
-	}
-	return [2]uint32{defaultOwner, defaultOwner}
-}
-
-func since(t time.Time) float64 { return float64(time.Since(t).Microseconds()) / 1000 }
-
-// prepareWrite computes the statistics and the public projection of a
-// snapshot, so the first edit on it does not walk the whole tree.
-func (s *serveWriteHandler) prepareWrite(ctx context.Context, req *writeRequest) (*writeResponse, error) {
-	start := time.Now()
-	resp := &writeResponse{TimingsMS: map[string]float64{}}
-	_, root, err := s.base(ctx, req.Snapshot)
-	if err != nil || root.IsNull() {
-		return resp, err
-	}
-	st, err := s.statsOf(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	resp.TimingsMS["stats"] = since(start)
-	if st.pubEntries > 0 {
-		f := &finishedTree{root: root, stats: st}
-		if f.public, err = s.public.RewriteTree(ctx, s, pendingSaver{s}, "/", root); err == nil {
-			err = s.upload(ctx, f)
-		}
-	}
-	resp.TimingsMS["total"] = since(start)
-	return resp, err
-}
-
-type contentSaver func(context.Context, *writeEdit) (restic.IDs, uint64, error)
-
-// hashContent chunks bytes with the repository's polynomial, as backup does,
-// so the same bytes give the same blob IDs. Blobs the index lacks are kept
-// until the upload phase.
-func (s *serveWriteHandler) hashContent(ctx context.Context, rd io.Reader) (restic.IDs, uint64, error) {
-	ch := chunker.New(rd, s.repo.Config().ChunkerPolynomial)
-	buf := make([]byte, chunker.MaxSize)
-	ids := restic.IDs{}
-	var size uint64
-	for {
-		c, err := ch.Next(buf)
-		if err == io.EOF {
-			return ids, size, nil
-		}
+// treeWrite runs one write under its own shared lock. A process that holds no
+// lock while idle can see packs a prune removed since the last request, so the
+// index is refreshed under the lock before anything is looked up.
+func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest) (*treeWriteResponse, error) {
+	if s.broken {
+		repo, err := s.open(ctx, false)
 		if err != nil {
-			return nil, 0, err
+			_, _ = fmt.Fprintf(os.Stderr, "serve-write: reopen: %v\n", err)
+			return nil, &writeFailureError{status: http.StatusServiceUnavailable, code: "repository_unavailable"}
 		}
-		if err = ctx.Err(); err != nil {
-			return nil, 0, err
-		}
-		id := restic.Hash(c.Data)
-		if _, ok := s.repo.LookupBlobSize(restic.DataBlob, id); !ok {
-			if _, ok := s.pendingData[id]; !ok {
-				s.pendingData[id] = append([]byte(nil), c.Data...)
-			}
-		}
-		ids = append(ids, id)
-		size += uint64(c.Length)
+		s.w.reset(repo)
+		s.broken = false
 	}
-}
-
-func (s *serveWriteHandler) editContent(ctx context.Context, e *writeEdit) (restic.IDs, uint64, error) {
-	if e.Source == "" {
-		return s.hashContent(ctx, bytes.NewReader(e.Data))
-	}
-	if len(e.Data) != 0 {
-		return nil, 0, invalidf("data and source")
-	}
-	f, err := os.Open(e.Source)
+	unlock, lockCtx, err := s.lockRepo(ctx, s.w.repo)
 	if err != nil {
-		return nil, 0, invalidf("source unreadable")
+		if restic.IsAlreadyLocked(err) {
+			return nil, &writeFailureError{status: http.StatusServiceUnavailable, code: "repository_locked"}
+		}
+		return nil, err
 	}
-	defer func() { _ = f.Close() }()
-	return s.hashContent(ctx, f)
-}
-
-func (s *serveWriteHandler) edit(ctx context.Context, req *writeRequest) (*writeResponse, error) {
+	defer unlock()
 	start := time.Now()
-	if len(req.Edits) == 0 || req.OpID == "" {
-		return nil, invalidf("edits and op_id are required")
-	}
-	baseSn, cur, err := s.base(ctx, req.Base)
-	if err != nil {
+	if err = s.w.refreshIndex(lockCtx); err != nil {
 		return nil, err
 	}
-	resp := &writeResponse{TimingsMS: map[string]float64{"load": since(start)}}
-	st, err := s.rootStats(ctx, cur)
+	indexMS := since(start)
+	resp, err := s.w.write(lockCtx, req)
 	if err != nil {
+		var uploadErr *uploadError
+		if errors.As(err, &uploadErr) {
+			s.broken = true
+		}
 		return nil, err
 	}
-	ino := st.maxInode
-	now := time.Now()
-	for i := range req.Edits {
-		t := s.newEditTree(cur, now, req.owner(), &ino)
-		target, err := t.apply(ctx, &req.Edits[i], s.editContent)
-		var refusal *writeRefusal
-		if errors.As(err, &refusal) {
-			refusal.Edit = i
-		}
-		if err != nil {
-			return nil, err
-		}
-		receipt := editReceipt{Path: target}
-		if target != "" {
-			n, err := t.node(ctx, target)
-			if err != nil {
-				return nil, err
-			}
-			receipt.ETag = etagOf(n)
-		}
-		resp.Edits = append(resp.Edits, receipt)
-		if cur, err = t.commit(ctx); err != nil {
-			return nil, err
-		}
-	}
-	f, err := s.check(ctx, cur)
-	if err != nil {
-		return nil, err
-	}
-	resp.TimingsMS["edit"] = since(start)
-	if err = s.upload(ctx, f); err != nil {
-		return nil, err
-	}
-	resp.TimingsMS["flush"] = since(start)
-	return s.snapshots(ctx, req, baseSn, f, start, resp)
+	resp.TimingsMS["index"] = indexMS
+	return resp, nil
 }
 
-func (s *serveWriteHandler) rootStats(ctx context.Context, root restic.ID) (*treeStats, error) {
-	if root.IsNull() {
-		return &treeStats{}, nil
+// decodeStrict decodes exactly one JSON value and refuses unknown fields.
+func decodeStrict(r io.Reader, v any) error {
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return invalidf("body: %v", err)
 	}
-	return s.statsOf(ctx, root)
-}
-
-type finishedTree struct {
-	root, public restic.ID
-	stats        *treeStats
-	incomplete   []string
-}
-
-// check validates a new root before anything is saved. The head must hold
-// every name of each hard-linked inode; the twin is not written when a group
-// has a private name and a public one (decision 28), as the helper refuses an
-// incomplete group in its public scan.
-func (s *serveWriteHandler) check(ctx context.Context, root restic.ID) (*finishedTree, error) {
-	out := &finishedTree{root: root}
-	if root.IsNull() {
-		return out, nil
+	var extra any
+	if dec.Decode(&extra) != io.EOF {
+		return invalidf("body: trailing data")
 	}
-	st, err := s.statsOf(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	out.stats = st
-	for _, names := range st.linkGroups() {
-		public := []string{}
-		for _, l := range names {
-			if !l.private {
-				public = append(public, "/"+l.rel)
-			}
-		}
-		if uint64(len(names)) != names[0].links {
-			return nil, errors.New("incomplete hard-link group in the head")
-		}
-		if len(public) > 0 && len(public) != len(names) {
-			sort.Strings(public)
-			out.incomplete = append(out.incomplete, public[0])
-		}
-	}
-	sort.Strings(out.incomplete)
-	if len(out.incomplete) == 0 && st.pubEntries > 0 {
-		out.public, err = s.public.RewriteTree(ctx, s, pendingSaver{s}, "/", root)
-	}
-	return out, err
-}
-
-// pendingSaver keeps new trees of the public projection pending, so the
-// projection runs before anything is saved.
-type pendingSaver struct{ s *serveWriteHandler }
-
-func (p pendingSaver) SaveBlob(_ context.Context, t restic.BlobType, buf []byte, id restic.ID, _ bool) (restic.ID, bool, int, error) {
-	if t != restic.TreeBlob {
-		return restic.ID{}, false, 0, errors.New("projection saves only trees")
-	}
-	if id.IsNull() {
-		id = restic.Hash(buf)
-	}
-	if _, ok := p.s.repo.LookupBlobSize(restic.TreeBlob, id); ok {
-		return id, true, 0, nil
-	}
-	if _, ok := p.s.pending[id]; ok {
-		return id, true, 0, nil
-	}
-	p.s.pending[id] = append([]byte(nil), buf...)
-	return id, false, len(buf), nil
-}
-
-// upload saves the pending blobs the root and the public twin reference in
-// one pack upload, then writes the index. A failure leaves the
-// repository object unusable for writes (see broken).
-func (s *serveWriteHandler) upload(ctx context.Context, f *finishedTree) error {
-	if f.root.IsNull() {
-		return nil
-	}
-	err := s.repo.WithBlobUploader(ctx, func(ctx context.Context, up restic.BlobSaverWithAsync) error {
-		if err := s.savePending(ctx, up, f.root); err != nil {
-			return err
-		}
-		return s.savePending(ctx, up, f.public)
-	})
-	if err != nil {
-		s.broken = true
-	}
-	return err
-}
-
-// savePending saves the pending trees reachable from id and the new data
-// blobs their files reference; trees of intermediate edits that the final
-// root does not reference are dropped.
-func (s *serveWriteHandler) savePending(ctx context.Context, up restic.BlobSaver, id restic.ID) error {
-	buf, ok := s.pending[id]
-	if !ok {
-		return nil
-	}
-	nodes, err := s.loadNodes(ctx, id, false)
-	if err != nil {
-		return err
-	}
-	for _, n := range nodes {
-		switch n.Type {
-		case data.NodeTypeDir:
-			if err = s.savePending(ctx, up, *n.Subtree); err != nil {
-				return err
-			}
-		case data.NodeTypeFile:
-			for _, c := range n.Content {
-				if b, ok := s.pendingData[c]; ok {
-					if _, _, _, err = up.SaveBlob(ctx, restic.DataBlob, b, c, false); err != nil {
-						return err
-					}
-					delete(s.pendingData, c)
-				}
-			}
-		}
-	}
-	if _, _, _, err = up.SaveBlob(ctx, restic.TreeBlob, buf, id, false); err != nil {
-		return err
-	}
-	delete(s.pending, id)
-	s.cache.Add(id, buf)
 	return nil
 }
 
-// snapshots writes the head and then its public twin with the helper's tags
-// and host. The pack and index uploads have completed.
-func (s *serveWriteHandler) snapshots(ctx context.Context, req *writeRequest, baseSn *data.Snapshot, f *finishedTree, start time.Time, resp *writeResponse) (*writeResponse, error) {
-	if f.root.IsNull() {
-		resp.Empty, resp.PublicEmpty = true, true
-		resp.TimingsMS["total"] = since(start)
-		return resp, nil
-	}
-	sn := &data.Snapshot{Paths: req.Paths, Hostname: "plori-workspace", Username: "root", ProgramVersion: "restic " + global.Version}
-	if baseSn != nil {
-		sn.Paths, sn.Username, sn.UID, sn.GID = baseSn.Paths, baseSn.Username, baseSn.UID, baseSn.GID
-		parent := s.snapshotIDs[baseSn]
-		sn.Parent = &parent
-	}
-	if len(sn.Paths) == 0 {
-		return nil, invalidf("paths are required without a base snapshot")
-	}
-	sn.Time = time.Now()
-	sn.Tags = []string{"plori-op:" + req.OpID}
-	if req.CopyID != "" {
-		sn.Tags = append(sn.Tags, "plori-copy:"+req.CopyID)
-	}
-	tree := f.root
-	sn.Tree = &tree
-	sn.Summary = &data.SnapshotSummary{BackupStart: start, BackupEnd: sn.Time, TotalFilesProcessed: uint(f.stats.files), TotalBytesProcessed: f.stats.bytes}
-	id, err := data.SaveSnapshot(ctx, s.repo, sn)
-	if err != nil {
-		return nil, err
-	}
-	s.rememberSnapshot(id, sn)
-	resp.Head = &snapshotReceipt{id.String(), f.root.String(), f.stats.entries, f.stats.bytes}
-	resp.TimingsMS["head_snapshot"] = since(start)
-	resp.IncompleteLinkGroups = f.incomplete
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+type failureBody struct {
+	Code   string `json:"code"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// writeFailureError carries an HTTP status and a fixed code.
+type writeFailureError struct {
+	status int
+	code   string
+}
+
+func (e *writeFailureError) Error() string { return e.code }
+
+// uploadError is a failure inside WithBlobUploader.
+type uploadError struct{ err error }
+
+func (e *uploadError) Error() string { return "upload: " + e.err.Error() }
+func (e *uploadError) Unwrap() error { return e.err }
+
+func writeFailure(w http.ResponseWriter, err error) {
+	var refusal *writeRefusal
+	var failure *writeFailureError
 	switch {
-	case len(f.incomplete) > 0:
-	case f.stats.pubEntries == 0:
-		resp.PublicEmpty = true
+	case errors.As(err, &refusal):
+		writeJSON(w, http.StatusConflict, refusal)
+	case errors.As(err, &failure):
+		writeJSON(w, failure.status, failureBody{Code: failure.code})
+	case errors.Is(err, errUnsupportedVersion):
+		writeJSON(w, http.StatusBadRequest, failureBody{Code: "unsupported_version"})
+	case errors.Is(err, errInvalid):
+		writeJSON(w, http.StatusBadRequest, failureBody{Code: "invalid_request", Detail: err.Error()})
+	case errors.Is(err, os.ErrNotExist):
+		writeJSON(w, http.StatusNotFound, failureBody{Code: "snapshot_not_found"})
 	default:
-		pub := *sn
-		pub.Tags = append(append([]string(nil), sn.Tags...), "plori-public")
-		pub.Parent = &id
-		pubTree := f.public
-		pub.Tree = &pubTree
-		pub.Summary = &data.SnapshotSummary{BackupStart: start, BackupEnd: sn.Time, TotalFilesProcessed: uint(f.stats.pubFiles), TotalBytesProcessed: f.stats.pubBytes}
-		pubID, err := data.SaveSnapshot(ctx, s.repo, &pub)
-		if err != nil {
-			return nil, err
-		}
-		s.rememberSnapshot(pubID, &pub)
-		resp.Public = &snapshotReceipt{pubID.String(), f.public.String(), f.stats.pubEntries, f.stats.pubBytes}
+		_, _ = fmt.Fprintf(os.Stderr, "serve-write: %v\n", err)
+		writeJSON(w, http.StatusInternalServerError, failureBody{Code: "write_failed"})
 	}
-	resp.TimingsMS["total"] = since(start)
-	return resp, nil
 }

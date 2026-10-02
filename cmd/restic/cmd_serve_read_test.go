@@ -196,7 +196,7 @@ func TestServeReadSocketAndShutdown(t *testing.T) {
 	// Keep the socket address below the Unix address length limit.
 	dir, err := os.MkdirTemp("", "rfork-")
 	rtest.OK(t, err)
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	socket := filepath.Join(dir, "read.sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -261,7 +261,7 @@ func TestServeReadWalkFailureTrailer(t *testing.T) {
 	rtest.OK(t, err)
 	w := serveReadRequest(newServeReadHandler(repo), "GET", "/walk?snapshot="+id.String(), "")
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, err = io.ReadAll(resp.Body)
 	rtest.OK(t, err)
 	rtest.Equals(t, "read failed", resp.Trailer.Get("X-Restic-Error"))

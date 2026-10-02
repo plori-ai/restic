@@ -36,7 +36,6 @@ const (
 	codeExists   = "file_exists"
 	codeNotDir   = "file_not_dir"
 	codeRefused  = "content_refused"
-	trashDir     = ".plori-trash"
 	maxTreeDepth = 128
 )
 
@@ -73,7 +72,7 @@ type treeStats struct {
 
 func (s *serveWriteHandler) excluded(name string) bool {
 	lower := strings.ToLower(name)
-	for _, p := range s.excludes {
+	for _, p := range s.cfg.excludes {
 		if ok, _ := path.Match(strings.ToLower(p), lower); ok {
 			return true
 		}
@@ -192,6 +191,11 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 			st.pubEntries++
 		}
 		st.maxInode = max(st.maxInode, n.Inode)
+		if s.verifier {
+			if err := s.indexed(n); err != nil {
+				return nil, err
+			}
+		}
 		switch n.Type {
 		case data.NodeTypeFile:
 			st.files++
@@ -607,31 +611,47 @@ func precondition(e *writeEdit, n *data.Node) error {
 // apply makes one edit. It follows the helper's Files rules
 // (workspacehelper/mutation.go): a write to a file with several names rewrites
 // that inode, so every alias sees the bytes; any other write creates a new
-// inode; delete moves the entry to .plori-trash/<handle>; rename keeps the
-// inode; mkdir creates parents.
-func (t *editTree) apply(ctx context.Context, e *writeEdit, save contentSaver) (target string, err error) {
-	if err = checkPath(e.Path); err != nil {
-		return "", err
+// inode; trash moves the entry to <trash-dir>/<handle> and restore moves it
+// back; rename keeps the inode; mkdir creates parents; empty-trash removes
+// the trash directory. The receipt's Path names the node whose ETag the
+// caller reports.
+func (t *editTree) apply(ctx context.Context, e *writeEdit, contents []contentItem) (editReceipt, error) {
+	r := editReceipt{}
+	switch e.Op {
+	case "empty-trash":
+		n, err := t.emptyTrash(ctx)
+		r.Deleted = n
+		return r, err
+	case "mkdir":
+		if e.Path == "" {
+			return r, nil // the root always exists
+		}
+	case "restore":
+		return t.restore(ctx, e)
+	}
+	if err := checkPath(e.Path); err != nil {
+		return r, err
 	}
 	n, err := t.node(ctx, e.Path)
 	if err != nil {
-		return "", err
+		return r, err
+	}
+	if n != nil {
+		r.BeforeETag = etagOf(n)
 	}
 	switch e.Op {
 	case "write":
 		if n != nil && n.Type != data.NodeTypeFile {
-			return "", refuse(codeRefused)
+			return r, refuse(codeRefused)
 		}
 		if err = precondition(e, n); err != nil {
-			return "", err
+			return r, err
 		}
-		content, size, err := save(ctx, e)
-		if err != nil {
-			return "", err
-		}
+		c := contents[*e.Content]
+		r.Path = e.Path
 		if n != nil && n.Links > 1 {
-			return e.Path, t.inodeUpdate(ctx, e.Path, n, func(a *data.Node) {
-				a.Content, a.Size = content, size
+			return r, t.inodeUpdate(ctx, e.Path, n, func(a *data.Node) {
+				a.Content, a.Size = c.ids, c.size
 				a.ModTime, a.AccessTime, a.ChangeTime = t.now, t.now, t.ctime(a.ChangeTime)
 				if e.Mode != 0 {
 					a.Mode = a.Mode&^os.ModePerm | os.FileMode(e.Mode&0777)
@@ -639,7 +659,7 @@ func (t *editTree) apply(ctx context.Context, e *writeEdit, save contentSaver) (
 			})
 		}
 		if err = t.ensureParents(ctx, e.Path); err != nil {
-			return "", err
+			return r, err
 		}
 		mode := os.FileMode(e.Mode & 0777)
 		if mode == 0 {
@@ -654,97 +674,133 @@ func (t *editTree) apply(ctx context.Context, e *writeEdit, save contentSaver) (
 		}
 		user, group := names(t.owner[0], t.owner[1], n, parent)
 		t.put(e.Path, &data.Node{Type: data.NodeTypeFile, Mode: mode, ModTime: t.now, AccessTime: t.now, ChangeTime: t.now,
-			UID: t.owner[0], GID: t.owner[1], User: user, Group: group, Inode: t.newInode(), Links: 1, Size: size, Content: content})
+			UID: t.owner[0], GID: t.owner[1], User: user, Group: group, Inode: t.newInode(), Links: 1, Size: c.size, Content: c.ids})
 		t.touch(dirOf(e.Path))
-		return e.Path, nil
+		return r, nil
 	case "mkdir":
+		r.Path = e.Path
 		if n != nil {
 			if n.Type == data.NodeTypeDir {
-				return e.Path, nil
+				return r, nil
 			}
-			return "", refuse(codeExists)
+			return r, refuse(codeExists)
 		}
 		if err = t.ensureParents(ctx, e.Path); err != nil {
-			return "", err
+			return r, err
 		}
 		mode := os.FileMode(e.Mode & 0777)
 		if mode == 0 {
 			mode = 0755
 		}
 		t.mkdir(e.Path, mode, t.owner[0], t.owner[1])
-		return e.Path, nil
-	case "delete", "rename", "chmod":
-		if n == nil {
-			if e.ExpectedETag != nil {
-				return "", refuse(codeStale)
-			}
-			return "", refuse(codeNotFound)
-		}
-		if n.Type != data.NodeTypeFile && n.Type != data.NodeTypeDir {
-			return "", refuse(codeRefused)
-		}
-		if err = precondition(e, n); err != nil {
-			return "", err
-		}
-	default:
-		return "", invalidf("op %q", e.Op)
+		return r, nil
 	}
-	if e.Op == "chmod" {
+	// rename, chmod and trash act on an existing file or directory.
+	if n == nil {
+		if e.ExpectedETag != nil {
+			return r, refuse(codeStale)
+		}
+		return r, refuse(codeNotFound)
+	}
+	if n.Type != data.NodeTypeFile && n.Type != data.NodeTypeDir {
+		return r, refuse(codeRefused)
+	}
+	if err = precondition(e, n); err != nil {
+		return r, err
+	}
+	switch e.Op {
+	case "chmod":
 		mode := unixMode(e.Mode)
-		return e.Path, t.inodeUpdate(ctx, e.Path, n, func(a *data.Node) {
+		r.Path = e.Path
+		return r, t.inodeUpdate(ctx, e.Path, n, func(a *data.Node) {
 			a.Mode = a.Mode&^modeBits(^os.FileMode(0)) | mode
 			a.ChangeTime = t.ctime(a.ChangeTime)
 		})
-	}
-	to := e.To
-	if e.Op == "delete" {
-		if e.Trash == "" || strings.Contains(e.Trash, "/") || checkPath(e.Trash) != nil {
-			return "", invalidf("trash handle %q", e.Trash)
+	case "trash":
+		if err = t.ensureTrash(ctx); err != nil {
+			return r, err
 		}
-		trash, err := t.node(ctx, trashDir)
-		if err != nil {
-			return "", err
-		}
-		if trash == nil {
-			// The helper creates .plori-trash as root with mode 0700.
-			if _, err = t.tryDir(ctx, ""); err != nil {
-				return "", err
-			}
-			t.mkdir(trashDir, 0700, 0, 0)
-			t.dirs[""].nodes[trashDir].User, t.dirs[""].nodes[trashDir].Group = "root", "root"
-		} else if trash.Type != data.NodeTypeDir {
-			return "", refuse(codeRefused)
-		}
-		to = trashDir + "/" + e.Trash
+		r.Deleted = 1
+		return r, t.move(ctx, e.Path, t.trash()+"/"+e.Handle, n)
+	default: // rename
+		r.Path = e.To
+		return r, t.move(ctx, e.Path, e.To, n)
 	}
-	if err = checkPath(to); err != nil {
-		return "", err
+}
+
+func (t *editTree) trash() string { return t.s.cfg.trashDir }
+
+// ensureTrash creates the trash directory with mode 0700, owned by root, as
+// the helper (running as root) creates it; an existing one must be a
+// directory.
+func (t *editTree) ensureTrash(ctx context.Context) error {
+	trash, err := t.node(ctx, t.trash())
+	if err != nil {
+		return err
 	}
-	if to == e.Path || strings.HasPrefix(to, e.Path+"/") {
-		return "", invalidf("rename %q into itself", e.Path)
+	if trash == nil {
+		t.mkdir(t.trash(), 0700, 0, 0)
+		t.dirs[""].nodes[t.trash()].User, t.dirs[""].nodes[t.trash()].Group = "root", "root"
+		return nil
+	}
+	if trash.Type != data.NodeTypeDir {
+		return refuse(codeRefused)
+	}
+	return nil
+}
+
+// restore moves <trash-dir>/<handle> back to e.Path. Like the helper it has
+// no ETag precondition.
+func (t *editTree) restore(ctx context.Context, e *writeEdit) (editReceipt, error) {
+	r := editReceipt{Path: e.Path}
+	if err := checkPath(e.Path); err != nil {
+		return r, err
+	}
+	from := t.trash() + "/" + e.Handle
+	n, err := t.node(ctx, from)
+	if err != nil {
+		return r, err
+	}
+	if n == nil {
+		return r, refuse(codeNotFound)
+	}
+	if n.Type != data.NodeTypeFile && n.Type != data.NodeTypeDir {
+		return r, refuse(codeRefused)
+	}
+	return r, t.move(ctx, from, e.Path, n)
+}
+
+// move renames from to to: the inode, and so every hard-link alias, is kept.
+// The destination must not exist; its missing parents are created.
+func (t *editTree) move(ctx context.Context, from, to string, n *data.Node) error {
+	if err := checkPath(to); err != nil {
+		return err
+	}
+	if to == from || strings.HasPrefix(to, from+"/") {
+		return invalidf("rename %q into itself", from)
 	}
 	dst, err := t.node(ctx, to)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if dst != nil {
-		return "", refuse(codeExists)
+		return refuse(codeExists)
 	}
 	if err = t.ensureParents(ctx, to); err != nil {
-		return "", err
+		return err
 	}
 	// rename(2) changes the moved inode's ctime; a hard-linked file shares it.
-	if err = t.inodeUpdate(ctx, e.Path, n, func(a *data.Node) { a.ChangeTime = t.ctime(a.ChangeTime) }); err != nil {
-		return "", err
+	if err = t.inodeUpdate(ctx, from, n, func(a *data.Node) { a.ChangeTime = t.ctime(a.ChangeTime) }); err != nil {
+		return err
 	}
-	from := t.dirs[dirOf(e.Path)]
-	delete(from.nodes, path.Base(e.Path))
-	from.changed = true
+	src := t.dirs[dirOf(from)]
+	delete(src.nodes, path.Base(from))
+	src.changed = true
 	if n.Type == data.NodeTypeDir {
 		moved := map[string]*editDir{}
 		for p, d := range t.dirs {
-			if p == e.Path || strings.HasPrefix(p, e.Path+"/") {
-				moved[to+strings.TrimPrefix(p, e.Path)] = d
+			if p == from || strings.HasPrefix(p, from+"/") {
+				moved[to+strings.TrimPrefix(p, from)] = d
 				delete(t.dirs, p)
 			}
 		}
@@ -753,12 +809,71 @@ func (t *editTree) apply(ctx context.Context, e *writeEdit, save contentSaver) (
 		}
 	}
 	t.put(to, n)
-	t.touch(dirOf(e.Path))
+	t.touch(dirOf(from))
 	t.touch(dirOf(to))
-	if e.Op == "delete" {
-		return "", nil
+	return nil
+}
+
+// emptyTrash removes the trash directory and returns how many entries it
+// held. A hard-linked file with names outside the trash loses those links:
+// its remaining names get the new link count and ctime, as unlink(2) changes
+// them, and a file left with one name drops its device ID, as backup stores
+// single-link files.
+func (t *editTree) emptyTrash(ctx context.Context) (uint64, error) {
+	root, err := t.tryDir(ctx, "")
+	if err != nil {
+		return 0, err
 	}
-	return to, nil
+	tn := root.nodes[t.trash()]
+	if tn == nil {
+		return 0, nil
+	}
+	if tn.Type != data.NodeTypeDir {
+		return 0, refuse(codeRefused)
+	}
+	trash, err := t.tryDir(ctx, t.trash())
+	if err != nil {
+		return 0, err
+	}
+	count := uint64(len(trash.nodes))
+	st, err := t.rootStats(ctx)
+	if err != nil {
+		return 0, err
+	}
+	prefix := t.trash() + "/"
+	removed := map[inodeKey]uint64{}
+	for _, l := range st.linked {
+		if strings.HasPrefix(l.rel, prefix) {
+			removed[l.key]++
+		}
+	}
+	for _, l := range st.linked {
+		k := removed[l.key]
+		if k == 0 || strings.HasPrefix(l.rel, prefix) {
+			continue
+		}
+		a, err := t.node(ctx, l.rel)
+		if err != nil {
+			return 0, err
+		}
+		if a == nil || a.Links <= k {
+			return 0, fmt.Errorf("hard-link name %q not found", l.rel)
+		}
+		a.Links -= k
+		a.ChangeTime = t.ctime(a.ChangeTime)
+		if a.Links == 1 {
+			a.DeviceID = 0
+		}
+		t.dirs[dirOf(l.rel)].changed = true
+	}
+	delete(root.nodes, t.trash())
+	root.changed = true
+	for p := range t.dirs {
+		if strings.HasPrefix(p, prefix) || p == t.trash() {
+			delete(t.dirs, p)
+		}
+	}
+	return count, nil
 }
 
 // commit encodes the changed directories bottom-up into pending tree blobs and
@@ -817,7 +932,9 @@ func (s *serveWriteHandler) encode(ctx context.Context, nodes []*data.Node) (res
 	}
 	buf, _ := b.Finalize()
 	id := restic.Hash(buf)
-	if _, ok := s.repo.LookupBlobSize(restic.TreeBlob, id); !ok {
+	// The verifier keeps even indexed trees pending: its re-read must load
+	// the candidate's trees from the backend.
+	if _, ok := s.repo.LookupBlobSize(restic.TreeBlob, id); !ok || s.verifier {
 		s.pending[id] = buf
 	}
 	_, err := s.remember(ctx, id, nodes)
