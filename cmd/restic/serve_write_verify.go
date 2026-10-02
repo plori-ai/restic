@@ -69,17 +69,24 @@ func (s *serveWriteHandler) indexed(n *data.Node) error {
 }
 
 // verifyWrite checks a tree-write result against the repository through the
-// verifier's own handle: its index holds exactly the index files the backend
-// lists now (refreshIndex),
-// replays the request on its source to check the plan, then loads the
-// candidate's new trees from the backend, bypassing every cache, and walks
-// both trees, requiring every referenced blob to be in that index. Nothing
-// the writer holds in memory or in its local cache is used.
+// verifier's own handle, whose index holds exactly the index files the
+// backend lists now (refreshIndex). It replays the request on its source to
+// check the plan, then loads the candidate's new trees from the backend,
+// bypassing every cache, and walks both trees, requiring every referenced
+// blob to be in that index. Nothing the writer holds in memory or in its local
+// cache is used.
+//
+// The walk is incremental: the statistics of a tree are kept across calls
+// only when this handle computed them from trees it loaded itself, with every
+// referenced blob in its index. Trees are immutable and index files are only
+// added between prunes, so such a tree needs no new walk until an index file
+// disappears, which drops all statistics (refreshIndex). The candidate's new
+// trees are never taken from earlier calls.
 func (s *serveWriteHandler) verifyWrite(ctx context.Context, v *verifyWriteRequest) (*verifyWriteResponse, error) {
 	start := time.Now()
 	resp := &verifyWriteResponse{Version: treeWriteVersion, TimingsMS: map[string]float64{}}
 	err := s.verify(ctx, &v.Request, &v.Result, resp.TimingsMS)
-	s.resetState()
+	s.resetCall()
 	var failure *verifyFailure
 	switch {
 	case errors.As(err, &failure):
@@ -100,7 +107,16 @@ func (s *serveWriteHandler) verifyWrite(ctx context.Context, v *verifyWriteReque
 
 func (s *serveWriteHandler) verify(ctx context.Context, req *treeWriteRequest, res *treeWriteResponse, marks map[string]float64) error {
 	start := time.Now()
-	s.resetState()
+	s.resetCall()
+	// Statistics of trees this replay encoded were computed from memory, not
+	// from the backend: they never outlive the call.
+	defer func() {
+		s.statsMu.Lock()
+		for id := range s.pending {
+			delete(s.stats, id)
+		}
+		s.statsMu.Unlock()
+	}()
 	if err := s.refreshIndex(ctx, marks); err != nil {
 		return err
 	}

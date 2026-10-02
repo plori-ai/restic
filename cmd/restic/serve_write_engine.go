@@ -73,10 +73,19 @@ func (s *serveWriteHandler) reset(repo *repository.Repository) {
 }
 
 func (s *serveWriteHandler) resetState() {
-	s.roots = map[restic.ID]restic.ID{}
+	s.resetStats()
+	s.resetCall()
+}
+
+func (s *serveWriteHandler) resetStats() {
 	s.statsMu.Lock()
 	s.stats = map[restic.ID]*treeStats{}
 	s.statsMu.Unlock()
+}
+
+// resetCall drops everything except the tree statistics and the blob cache.
+func (s *serveWriteHandler) resetCall() {
+	s.roots = map[restic.ID]restic.ID{}
 	s.pending, s.pendingData = map[restic.ID][]byte{}, map[restic.ID][]byte{}
 	s.tokens = map[restic.ID]map[string]restic.IDs{}
 	s.snapshotsSeen, s.snapshotIDs = map[restic.ID]*data.Snapshot{}, map[*data.Snapshot]restic.ID{}
@@ -123,6 +132,12 @@ func (s *serveWriteHandler) refreshIndex(ctx context.Context, marks map[string]f
 		}
 	}
 	if removed {
+		if s.verifier {
+			// The verifier's statistics also certify that every blob below
+			// a tree was in its index; that holds only while no index file
+			// was removed.
+			s.resetStats()
+		}
 		s.resetProjection()
 		s.tokens = map[restic.ID]map[string]restic.IDs{}
 		s.snapshotsSeen, s.snapshotIDs = map[restic.ID]*data.Snapshot{}, map[*data.Snapshot]restic.ID{}

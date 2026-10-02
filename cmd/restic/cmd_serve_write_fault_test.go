@@ -290,3 +290,25 @@ func TestServeWriteIndexReplacementDropsCaches(t *testing.T) {
 	rtest.Assert(t, resp.Public != nil && !resp.Public.Empty, "twin missing")
 	checker.TestCheckRepo(t, f.repo)
 }
+
+// The verifier keeps the statistics of trees it walked, which certify that
+// every blob below them was indexed. Replaced index files drop them: a deep
+// base file whose data pack is gone (and dropped from the index by `repair
+// index`) is found again, although every tree is still indexed.
+func TestServeWriteVerifierStatisticsFollowTheIndex(t *testing.T) {
+	f := newSWFixture(t)
+	rtest.OK(t, os.Remove(filepath.Join(f.dir, ".plori-trash/old")))
+	base := f.backup(nil, false)
+	req := f.request(base, wr("z/new", "x"))
+	resp := f.write(req)
+	rtest.Assert(t, len(f.srv.v.stats) > 0, "verifier kept no statistics")
+	f.verifyOK(req, resp)
+	rtest.OK(t, f.repo.LoadIndex(context.TODO(), nil))
+	deep := f.flatten(base.String())["c/d/e/deep"]
+	for _, pb := range f.repo.LookupBlob(restic.DataBlob, deep.Content[0]) {
+		rtest.OK(t, f.be.Remove(context.TODO(), backend.Handle{Type: backend.PackFile, Name: pb.PackID.String()}))
+	}
+	rtest.OK(t, repository.RepairIndex(context.TODO(), f.repo, repository.RepairIndexOptions{}, &progress.NoopPrinter{}))
+	v := f.verify(req, resp)
+	rtest.Assert(t, !v.OK && v.Code == "blob_missing", "want blob_missing, got ok=%v %s: %s", v.OK, v.Code, v.Detail)
+}
