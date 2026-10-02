@@ -188,6 +188,8 @@ type writeContent struct {
 type treeWriteRequest struct {
 	Version int        `json:"version"`
 	Base    treeSource `json:"base"`
+	// PublicTwinOfBase keeps the head snapshot and writes only its public projection.
+	PublicTwinOfBase bool `json:"public_twin_of_base,omitempty"`
 	// Time is the mtime/ctime of created and changed nodes (RFC 3339 with
 	// nanoseconds). A repeated request writes the same trees.
 	Time  string     `json:"time"`
@@ -289,6 +291,12 @@ func (r *treeWriteRequest) validate(cfg serveWriteConfig, inline bool) error {
 		if int64(len(c.Data)) != c.Length || hex.EncodeToString(sum[:]) != c.SHA256 {
 			return invalidf("content %d does not match its length and sha256", i)
 		}
+	}
+	if r.PublicTwinOfBase {
+		if r.Base.Empty || len(r.Edits) != 0 || r.Merge != nil || len(r.Contents) != 0 {
+			return invalidf("public_twin_of_base requires a snapshot base and no edits, merge or contents")
+		}
+		return nil
 	}
 	if (len(r.Edits) > 0) == (r.Merge != nil) {
 		return invalidf("exactly one of edits and merge")

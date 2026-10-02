@@ -506,6 +506,6 @@ func TestServeWriteSelectedRefusals(t *testing.T) {
 	w := serveReadRequest(f.srv, http.MethodGet, "/version", "")
 	var v versionResponse
 	rtest.OK(t, json.Unmarshal(w.Body.Bytes(), &v))
-	rtest.Equals(t, []string{featureMergeSelectors}, v.Features)
+	rtest.Equals(t, []string{featureMergeSelectors, "public-twin-of-base"}, v.Features)
 	rtest.Equals(t, 1, v.Version)
 }

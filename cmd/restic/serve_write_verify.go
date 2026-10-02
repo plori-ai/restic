@@ -258,6 +258,32 @@ func (s *serveWriteHandler) verifySnapshots(ctx context.Context, req *treeWriteR
 	baseID, _ := restic.ParseID(req.Base.Snapshot)
 	want := snapshotOf(req, baseSn, baseID, restic.ID{})
 	headID, _ := restic.ParseID(res.Head.Snapshot)
+	if req.PublicTwinOfBase {
+		want.Tags = append([]string(nil), baseSn.Tags...)
+		if headID != baseID {
+			return mismatch("snapshot_mismatch", "public twin changed the base head")
+		}
+		if res.Public == nil || res.Public.Empty {
+			if res.DataAdded != 0 || res.DataAddedPacked != 0 {
+				return mismatch("snapshot_mismatch", "no public snapshot but added data")
+			}
+			return nil
+		}
+		pubID, _ := restic.ParseID(res.Public.Snapshot)
+		pub, err := s.loadSnapshot(ctx, "public", pubID)
+		if err != nil {
+			return err
+		}
+		want.Tags = append(want.Tags, req.PublicTags...)
+		want.Parent = &baseID
+		if err := sameSnapshot("public", pub, want, res.Public.Tree); err != nil {
+			return err
+		}
+		if pub.Summary == nil || pub.Summary.DataAdded != res.DataAdded || pub.Summary.DataAddedPacked != res.DataAddedPacked {
+			return mismatch("snapshot_mismatch", "public summary does not record added data")
+		}
+		return nil
+	}
 	head, err := s.loadSnapshot(ctx, "head", headID)
 	if err != nil {
 		return err

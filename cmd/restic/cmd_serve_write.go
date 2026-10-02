@@ -43,7 +43,7 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 	var socket string
 	cfg := serveWriteConfig{}
 	reads := defaultContentOptions()
-	cmd := &cobra.Command{Use: "serve-write --socket PATH", Short: "Serve snapshot reads and tree-native snapshot writes over a private Unix socket", GroupID: cmdGroupAdvanced, Args: cobra.NoArgs,
+	cmd := &cobra.Command{Use: "serve-write --socket PATH", Short: "Serve snapshot reads and tree-native snapshot writes (including public-twin-of-base) over a private Unix socket", GroupID: cmdGroupAdvanced, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if socket == "" {
 				return errors.New("--socket is required")
@@ -190,7 +190,7 @@ func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, versionResponse{Protocol: "tree-write", Version: treeWriteVersion, Restic: global.Version,
 			Endpoints: []string{"/version", "/prepare-write", "/tree-write", "/verify-write", "/prepare", "/tree", "/walk", "/file", "/snapshots", "/skeleton", contentReadPath},
-			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...), Features: []string{featureMergeSelectors}})
+			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...), Features: []string{featureMergeSelectors, "public-twin-of-base"}})
 		return
 	case "/prepare-write", "/tree-write", "/verify-write":
 	default:

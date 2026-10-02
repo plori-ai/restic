@@ -348,7 +348,7 @@ func (s *serveWriteHandler) build(ctx context.Context, req *treeWriteRequest, co
 	var receipts []editReceipt
 	if req.Merge != nil {
 		root, err = s.mergeWrite(ctx, req, contents, root, marks)
-	} else {
+	} else if !req.PublicTwinOfBase {
 		root, receipts, err = s.edits(ctx, req, contents, root)
 	}
 	if err != nil {
@@ -611,15 +611,22 @@ func (s *serveWriteHandler) snapshots(ctx context.Context, req *treeWriteRequest
 	}
 	baseID, _ := restic.ParseID(req.Base.Snapshot)
 	sn := snapshotOf(req, baseSn, baseID, f.root)
+	if req.PublicTwinOfBase {
+		sn.Tags = append([]string(nil), baseSn.Tags...)
+	}
 	sn.Time = time.Now()
 	sn.Summary = &data.SnapshotSummary{BackupStart: start, BackupEnd: sn.Time, DataBlobs: s.added.dataBlobs, TreeBlobs: s.added.treeBlobs,
 		DataAdded: s.added.dataAdded, DataAddedPacked: s.added.dataAddedPacked,
 		TotalFilesProcessed: uint(f.stats.files), TotalBytesProcessed: f.stats.bytes}
-	id, err := data.SaveSnapshot(ctx, s.repo, sn)
-	if err != nil {
-		return err
+	id := baseID
+	if !req.PublicTwinOfBase {
+		var err error
+		id, err = data.SaveSnapshot(ctx, s.repo, sn)
+		if err != nil {
+			return err
+		}
+		s.rememberSnapshot(id, sn)
 	}
-	s.rememberSnapshot(id, sn)
 	resp.Head = treeRole{Snapshot: id.String(), Tree: f.root.String(), Entries: f.stats.entries, LogicalBytes: f.stats.bytes}
 	resp.TimingsMS["head_snapshot"] = since(start)
 	resp.IncompleteLinkGroups = f.incomplete
@@ -634,6 +641,10 @@ func (s *serveWriteHandler) snapshots(ctx context.Context, req *treeWriteRequest
 		pubTree := f.public
 		pub.Tree = &pubTree
 		pub.Summary = &data.SnapshotSummary{BackupStart: start, BackupEnd: sn.Time, TotalFilesProcessed: uint(f.stats.pubFiles), TotalBytesProcessed: f.stats.pubBytes}
+		if req.PublicTwinOfBase {
+			pub.Summary.DataAdded, pub.Summary.DataAddedPacked = resp.DataAdded, resp.DataAddedPacked
+			pub.Summary.DataBlobs, pub.Summary.TreeBlobs = s.added.dataBlobs, s.added.treeBlobs
+		}
 		pubID, err := data.SaveSnapshot(ctx, s.repo, &pub)
 		if err != nil {
 			return err
