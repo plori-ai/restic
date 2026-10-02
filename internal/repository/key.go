@@ -55,6 +55,20 @@ const (
 	KDFMemory = 60
 )
 
+// MinimalKDFParams are the scrypt parameters of keys whose password is a
+// uniformly random secret of at least 256 bits. Such a password cannot be
+// guessed, so a slow KDF adds no protection, while every process that opens the
+// repository pays the KDF once. Opening reads the parameters from the key file,
+// so any restic version opens these keys.
+var MinimalKDFParams = crypto.Params{N: 1 << 10, R: 8, P: 1}
+
+// UseMinimalKDFParameters makes AddKey store new keys with MinimalKDFParams
+// instead of calibrated parameters.
+func UseMinimalKDFParameters() {
+	p := MinimalKDFParams
+	params = &p
+}
+
 // createMasterKey creates a new master key in the given backend and encrypts
 // it with the password.
 func createMasterKey(ctx context.Context, s *Repository, password string) (*Key, error) {

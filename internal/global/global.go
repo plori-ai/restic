@@ -61,6 +61,8 @@ type Options struct {
 	PackSize           uint
 	NoExtraVerify      bool
 	InsecureNoPassword bool
+	// HighEntropyPassword stores new keys with minimal KDF parameters.
+	HighEntropyPassword bool
 
 	backend.TransportOptions
 	limiter.Limits
@@ -105,6 +107,7 @@ func (opts *Options) AddFlags(f *pflag.FlagSet) {
 	f.StringSliceVar(&opts.RootCertFilenames, "cacert", nil, "`file` to load root certificates from (default: use system certificates or $RESTIC_CACERT)")
 	f.StringVar(&opts.TLSClientCertKeyFilename, "tls-client-cert", "", "path to a `file` containing PEM encoded TLS client certificate and private key (default: $RESTIC_TLS_CLIENT_CERT)")
 	f.BoolVar(&opts.InsecureNoPassword, "insecure-no-password", false, "use an empty password for the repository, must be passed to every restic command (insecure)")
+	f.BoolVar(&opts.HighEntropyPassword, "high-entropy-password", false, "the password is a uniformly random secret of at least 256 bits: store new keys (init, key add, key passwd) with minimal KDF parameters")
 	f.BoolVar(&opts.InsecureTLS, "insecure-tls", false, "skip TLS certificate verification when connecting to the repository (insecure)")
 	f.BoolVar(&opts.CleanupCache, "cleanup-cache", false, "auto remove old cache directories")
 	const compressionFlag = "compression"
@@ -136,6 +139,9 @@ func (opts *Options) AddFlags(f *pflag.FlagSet) {
 }
 
 func (opts *Options) PreRun(needsPassword bool) error {
+	if opts.HighEntropyPassword {
+		repository.UseMinimalKDFParameters()
+	}
 	if envVal := os.Getenv("RESTIC_PACK_SIZE"); envVal != "" && !opts.packSizeFlag.Changed {
 		targetPackSize, err := strconv.ParseUint(envVal, 10, 32)
 		if err != nil {
