@@ -15,6 +15,9 @@ type FailedTreeRewriteFunc func(nodeID restic.ID, path string, err error) (data.
 type QueryRewrittenSizeFunc func() SnapshotSize
 type NodeKeepEmptyDirectoryFunc func(path string) bool
 
+// KeepSubtreeFunc reports that a subtree is known to rewrite to itself.
+type KeepSubtreeFunc func(subtree restic.ID, path string) bool
+
 type SnapshotSize struct {
 	FileCount uint
 	FileSize  uint64
@@ -26,6 +29,10 @@ type RewriteOpts struct {
 	KeepEmptyDirectory NodeKeepEmptyDirectoryFunc
 	// decide what to do with a tree that could not be loaded. Return nil to remove the node. By default the load error is returned which causes the operation to fail.
 	RewriteFailedTree FailedTreeRewriteFunc
+	// KeepSubtree, when set and true for a directory node, keeps the node's
+	// subtree ID without loading or rewriting the subtree. The caller asserts
+	// that RewriteNode would return every node below it unchanged.
+	KeepSubtree KeepSubtreeFunc
 
 	AllowUnstableSerialization bool
 	DisableNodeCache           bool
@@ -163,6 +170,12 @@ func (t *TreeRewriter) RewriteTree(ctx context.Context, loader restic.BlobLoader
 		var subtree restic.ID
 		if node.Subtree != nil {
 			subtree = *node.Subtree
+		}
+		if t.opts.KeepSubtree != nil && !subtree.IsNull() && t.opts.KeepSubtree(subtree, path) {
+			if err = tb.AddNode(node); err != nil {
+				return restic.ID{}, err
+			}
+			continue
 		}
 		newID, err := t.RewriteTree(ctx, loader, saver, path, subtree)
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/restic/restic/internal/data"
@@ -109,8 +110,15 @@ func (s *serveWriteHandler) loadNodes(ctx context.Context, id restic.ID, guard b
 	return nodes, nil
 }
 
+func (s *serveWriteHandler) cachedStats(id restic.ID) (*treeStats, bool) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+	st, ok := s.stats[id]
+	return st, ok
+}
+
 func (s *serveWriteHandler) statsOf(ctx context.Context, id restic.ID) (*treeStats, error) {
-	if st, ok := s.stats[id]; ok {
+	if st, ok := s.cachedStats(id); ok {
 		return st, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -123,7 +131,39 @@ func (s *serveWriteHandler) statsOf(ctx context.Context, id restic.ID) (*treeSta
 	return s.remember(ctx, id, nodes)
 }
 
+// remember computes and records the statistics of a tree. Subtrees missing
+// from the memo are walked in parallel while a worker slot is free, else on
+// the calling goroutine, so a first walk of a large tree uses several cores.
 func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []*data.Node) (*treeStats, error) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var walkErr error
+	for _, n := range nodes {
+		if n.Type != data.NodeTypeDir || n.Subtree == nil {
+			continue
+		}
+		if _, ok := s.cachedStats(*n.Subtree); ok {
+			continue
+		}
+		select {
+		case s.walkers <- struct{}{}:
+			wg.Add(1)
+			go func(sub restic.ID) {
+				defer wg.Done()
+				defer func() { <-s.walkers }()
+				if _, err := s.statsOf(ctx, sub); err != nil {
+					mu.Lock()
+					walkErr = err
+					mu.Unlock()
+				}
+			}(*n.Subtree)
+		default:
+		}
+	}
+	wg.Wait()
+	if walkErr != nil {
+		return nil, walkErr
+	}
 	st := &treeStats{}
 	for _, n := range nodes {
 		private := s.excluded(n.Name)
@@ -169,6 +209,8 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 			}
 		}
 	}
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
 	if len(s.stats) >= serveWriteStatsLimit {
 		clear(s.stats)
 	}

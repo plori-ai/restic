@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 
@@ -71,6 +72,8 @@ type serveWriteHandler struct {
 	*serveReadHandler
 	excludes []string
 	stats    map[restic.ID]*treeStats
+	statsMu  sync.Mutex
+	walkers  chan struct{}
 	public   *walker.TreeRewriter
 	// pending and pendingData hold the tree and data blobs of the current
 	// request. A request computes its whole result before it saves anything,
@@ -88,7 +91,7 @@ type serveWriteHandler struct {
 
 func newServeWriteHandler(repo *repository.Repository, excludes []string) *serveWriteHandler {
 	s := &serveWriteHandler{serveReadHandler: newServeReadHandler(repo), excludes: excludes,
-		stats: map[restic.ID]*treeStats{}, pending: map[restic.ID][]byte{}, pendingData: map[restic.ID][]byte{}, tokens: map[restic.ID]map[string]restic.IDs{},
+		stats: map[restic.ID]*treeStats{}, walkers: make(chan struct{}, 8), pending: map[restic.ID][]byte{}, pendingData: map[restic.ID][]byte{}, tokens: map[restic.ID]map[string]restic.IDs{},
 		snapshotsSeen: map[restic.ID]*data.Snapshot{}, snapshotIDs: map[*data.Snapshot]restic.ID{}}
 	s.resetProjection()
 	return s
@@ -103,6 +106,10 @@ func (s *serveWriteHandler) resetProjection() {
 			return nil
 		}
 		return n
+	}, KeepSubtree: func(id restic.ID, _ string) bool {
+		// A subtree without a private name at any depth projects to itself.
+		st, ok := s.cachedStats(id)
+		return ok && st.entries == st.pubEntries
 	}})
 }
 
