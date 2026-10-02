@@ -397,6 +397,35 @@ func TestRewriterKeepEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestRewriterKeepSubtree(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	repo, root := BuildTreeMap(TestTree{
+		"keep": TestTree{"secret": TestFile{}, "file": TestFile{}},
+		"drop": TestTree{"secret": TestFile{}, "file": TestFile{}},
+	})
+	modrepo := data.TestWritableTreeMap{TestTreeMap: repo}
+	var visited []string
+	rw := NewTreeRewriter(RewriteOpts{
+		RewriteNode: func(node *data.Node, path string) *data.Node {
+			visited = append(visited, path)
+			if node.Name == "secret" {
+				return nil
+			}
+			return node
+		},
+		KeepSubtree: func(_ restic.ID, path string) bool { return path == "/keep" },
+	})
+	newRoot, err := rw.RewriteTree(ctx, modrepo, modrepo, "/", root)
+	test.OK(t, err)
+	_, want := BuildTreeMap(TestTree{
+		"keep": TestTree{"secret": TestFile{}, "file": TestFile{}},
+		"drop": TestTree{"file": TestFile{}},
+	})
+	test.Equals(t, want, newRoot)
+	test.Equals(t, []string{"/drop", "/drop/file", "/drop/secret", "/keep"}, visited)
+}
+
 func TestRewriterFailOnUnknownFields(t *testing.T) {
 	tm := data.TestWritableTreeMap{TestTreeMap: data.TestTreeMap{}}
 	node := []byte(`{"nodes":[{"name":"subfile","type":"file","mtime":"0001-01-01T00:00:00Z","atime":"0001-01-01T00:00:00Z","ctime":"0001-01-01T00:00:00Z","uid":0,"gid":0,"content":null,"unknown_field":42}]}`)

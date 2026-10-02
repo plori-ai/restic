@@ -94,11 +94,12 @@ func (f *swFixture) post(uri string, req any) (int, writeResponse, writeRefusal)
 	w := serveReadRequest(f.h, http.MethodPost, uri, string(body))
 	var resp writeResponse
 	var refusal writeRefusal
-	if w.Code == http.StatusOK {
+	switch w.Code {
+	case http.StatusOK:
 		rtest.OK(f.t, json.Unmarshal(w.Body.Bytes(), &resp))
-	} else if w.Code == http.StatusConflict {
+	case http.StatusConflict:
 		rtest.OK(f.t, json.Unmarshal(w.Body.Bytes(), &refusal))
-	} else {
+	default:
 		f.t.Logf("%s answered %d: %s", uri, w.Code, w.Body.String())
 	}
 	return w.Code, resp, refusal
@@ -412,8 +413,8 @@ func TestServeWriteRefusals(t *testing.T) {
 
 // A tree with a field this restic version does not know cannot be rewritten
 // without loss. An edit in it is refused; an edit elsewhere keeps its tree ID
-// when it is private (the twin leaves it out without reading it) and is
-// refused when the twin would have to rewrite it.
+// in the head, and in the twin, which keeps a subtree without private names
+// by ID and leaves out a private one without reading it.
 func TestServeWriteUnknownFieldGuard(t *testing.T) {
 	for _, parent := range []string{".forge", "pub"} {
 		repo := repository.TestRepository(t)
@@ -437,10 +438,6 @@ func TestServeWriteUnknownFieldGuard(t *testing.T) {
 		w := serveReadRequest(h, http.MethodPost, "/edit", fmt.Sprintf(`{"base":%q,"op_id":"o","edits":[{"op":"write","path":"%s/g","data":"eA=="}]}`, sid, parent))
 		rtest.Equals(t, http.StatusInternalServerError, w.Code)
 		w = serveReadRequest(h, http.MethodPost, "/edit", fmt.Sprintf(`{"base":%q,"op_id":"o","edits":[{"op":"write","path":"top","data":"eA=="}]}`, sid))
-		if parent == "pub" {
-			rtest.Equals(t, http.StatusInternalServerError, w.Code)
-			continue
-		}
 		rtest.Equals(t, http.StatusOK, w.Code)
 		var resp writeResponse
 		rtest.OK(t, json.Unmarshal(w.Body.Bytes(), &resp))
@@ -449,6 +446,14 @@ func TestServeWriteUnknownFieldGuard(t *testing.T) {
 		rtest.OK(t, err)
 		rtest.Equals(t, odd, *nodes[0].Subtree)
 		rtest.Assert(t, resp.Public != nil, "twin missing")
+		pid, _ := restic.ParseID(resp.Public.Tree)
+		pub, err := h.loadNodes(ctx, pid, false)
+		rtest.OK(t, err)
+		if parent == "pub" {
+			rtest.Equals(t, odd, *pub[0].Subtree)
+		} else {
+			rtest.Equals(t, 1, len(pub))
+		}
 	}
 }
 
