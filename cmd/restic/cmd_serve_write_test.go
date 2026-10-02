@@ -544,3 +544,14 @@ func TestServeWriteMergeEntries(t *testing.T) {
 	rtest.Assert(t, resp.Public != nil && resp.Public.Tree == resp.Head.Tree, "twin of a tree without private names differs")
 	checker.TestCheckRepo(t, f.repo)
 }
+
+func TestServeWriteLockPerRequest(t *testing.T) {
+	f := newSWFixture(t)
+	base := f.backup(nil, false)
+	f.h.lockPerRequest = true
+	resp := f.edit(base, writeEdit{Op: "write", Path: "a/b/file2", Data: []byte("locked")})
+	rtest.Assert(t, resp.TimingsMS["lock"] >= 200, "lock took %v ms", resp.TimingsMS["lock"])
+	locks := 0
+	rtest.OK(t, f.repo.List(context.TODO(), restic.LockFile, func(restic.ID, int64) error { locks++; return nil }))
+	rtest.Equals(t, 0, locks)
+}

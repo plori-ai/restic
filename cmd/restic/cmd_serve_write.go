@@ -42,6 +42,7 @@ func defaultPublicExcludes() []string {
 func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 	var socket string
 	var excludes []string
+	var lockPerRequest bool
 	cmd := &cobra.Command{Use: "serve-write --socket PATH", Short: "Serve snapshot reads and tree-native snapshot writes over a private Unix socket", GroupID: cmdGroupAdvanced, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if socket == "" {
@@ -50,20 +51,32 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			printer := ui.NewProgressPrinter(false, gopts.Verbosity, gopts.Term)
-			ctx, repo, unlock, err := openWithAppendLock(ctx, *gopts, false, printer)
+			var repo *repository.Repository
+			var err error
+			if lockPerRequest {
+				repo, err = global.OpenRepository(ctx, *gopts, printer)
+			} else {
+				var unlock func()
+				ctx, repo, unlock, err = openWithAppendLock(ctx, *gopts, false, printer)
+				if err == nil {
+					defer unlock()
+				}
+			}
 			if err != nil {
 				return err
 			}
-			defer unlock()
 			if err = repo.LoadIndex(ctx, printer); err != nil {
 				return err
 			}
-			if err := serveReadListen(ctx, socket, newServeWriteHandler(repo, excludes)); err != nil {
+			h := newServeWriteHandler(repo, excludes)
+			h.lockPerRequest = lockPerRequest
+			if err := serveReadListen(ctx, socket, h); err != nil {
 				return err
 			}
 			return ErrOK
 		}}
 	cmd.Flags().StringVar(&socket, "socket", "", "platform Unix socket `path` (mode 0600)")
+	cmd.Flags().BoolVar(&lockPerRequest, "lock-per-request", false, "hold no lock while idle; take a shared repository lock for each write request")
 	cmd.Flags().StringArrayVar(&excludes, "public-exclude", defaultPublicExcludes(), "name `pattern` the public twin leaves out at every depth")
 	return cmd
 }
@@ -84,6 +97,9 @@ type serveWriteHandler struct {
 	// broken is set when an upload failed: upstream's WithBlobUploader does
 	// not reset the repository after an error, so the process must restart.
 	broken bool
+	// lockPerRequest takes upstream's shared lock (restic.NewLock, which
+	// waits 200 ms between its two lock checks) around each write request.
+	lockPerRequest bool
 	// snapshotsSeen and snapshotIDs keep loaded and written snapshots.
 	snapshotsSeen map[restic.ID]*data.Snapshot
 	snapshotIDs   map[*data.Snapshot]restic.ID
@@ -216,13 +232,28 @@ func (s *serveWriteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var resp *writeResponse
 	var err error
+	ctx := r.Context()
+	lockStart := time.Now()
+	if s.lockPerRequest && r.URL.Path != "/prepare-write" {
+		var lock *repository.Unlocker
+		lock, ctx, err = repository.Lock(ctx, s.repo, false, 0, func(string) {}, func(string, ...interface{}) {})
+		if err != nil {
+			http.Error(w, "repository locked", http.StatusServiceUnavailable)
+			return
+		}
+		defer lock.Unlock()
+	}
+	lockMS := since(lockStart)
 	switch r.URL.Path {
 	case "/prepare-write":
-		resp, err = s.prepareWrite(r.Context(), &req)
+		resp, err = s.prepareWrite(ctx, &req)
 	case "/edit":
-		resp, err = s.edit(r.Context(), &req)
+		resp, err = s.edit(ctx, &req)
 	case "/merge-write":
-		resp, err = s.mergeWrite(r.Context(), &req)
+		resp, err = s.mergeWrite(ctx, &req)
+	}
+	if resp != nil && s.lockPerRequest {
+		resp.TimingsMS["lock"] = lockMS
 	}
 	clear(s.pending)
 	clear(s.pendingData)
