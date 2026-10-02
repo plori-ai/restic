@@ -139,8 +139,10 @@ func TestServeWriteLockPerRequest(t *testing.T) {
 	exclusive.Unlock()
 	rtest.Equals(t, 0, f.countFiles(restic.LockFile))
 	resp := f.edit(base, wr("a/b/file2", "locked"))
-	_, ok := resp.TimingsMS["index"]
-	rtest.Assert(t, ok, "no index timing")
+	for _, k := range []string{"lock", "index_list", "unlock"} {
+		_, ok := resp.TimingsMS[k]
+		rtest.Assert(t, ok, "no %s timing", k)
+	}
 	rtest.Equals(t, 0, f.countFiles(restic.LockFile))
 }
 

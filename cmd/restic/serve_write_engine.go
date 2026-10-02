@@ -68,6 +68,7 @@ func newServeWriteHandler(repo *repository.Repository, cfg serveWriteConfig) *se
 func (s *serveWriteHandler) reset(repo *repository.Repository) {
 	s.repo = repo
 	s.cache = bloblru.New(64 << 20)
+	s.indexFiles = nil
 	s.resetState()
 }
 
@@ -99,29 +100,63 @@ func (s *serveWriteHandler) resetProjection() {
 	}})
 }
 
-// refreshIndex loads index files written since the last request. Prune
-// replaces index files, so a vanished one means trees and blobs the caches
-// remember may be gone: the projection cache, the token index and loaded
-// snapshots are dropped. Tree statistics describe immutable content and stay.
-func (s *serveWriteHandler) refreshIndex(ctx context.Context) error {
-	if err := s.repo.LoadIndex(ctx, nil); err != nil {
+// refreshIndex makes the handle's index match the index files the backend
+// lists now. Index files are immutable, so an unchanged listing needs no load;
+// otherwise upstream's incremental load reads the new files, or reloads
+// everything when a file vanished. A vanished file means a prune replaced
+// index files: trees and blobs the caches remember may be gone, so the
+// projection cache, the token index and loaded snapshots are dropped. Tree
+// statistics describe immutable content and stay.
+func (s *serveWriteHandler) refreshIndex(ctx context.Context, marks map[string]float64) error {
+	start := time.Now()
+	files, err := s.listIndex(ctx)
+	if err != nil {
 		return err
 	}
-	files := restic.NewIDSet()
-	if err := s.repo.List(ctx, restic.IndexFile, func(id restic.ID, _ int64) error { files.Insert(id); return nil }); err != nil {
-		return err
-	}
+	marks["index_list"] = since(start)
+	changed := s.indexFiles == nil || len(files) != len(s.indexFiles)
+	removed := false
 	for id := range s.indexFiles {
 		if !files.Has(id) {
-			s.resetProjection()
-			s.tokens = map[restic.ID]map[string]restic.IDs{}
-			s.snapshotsSeen, s.snapshotIDs = map[restic.ID]*data.Snapshot{}, map[*data.Snapshot]restic.ID{}
-			s.roots = map[restic.ID]restic.ID{}
+			changed, removed = true, true
 			break
 		}
 	}
+	if removed {
+		s.resetProjection()
+		s.tokens = map[restic.ID]map[string]restic.IDs{}
+		s.snapshotsSeen, s.snapshotIDs = map[restic.ID]*data.Snapshot{}, map[*data.Snapshot]restic.ID{}
+		s.roots = map[restic.ID]restic.ID{}
+	}
+	if changed {
+		start = time.Now()
+		if err = s.repo.LoadIndex(ctx, nil); err != nil {
+			s.indexFiles = nil
+			return err
+		}
+		marks["index_load"] = since(start)
+	}
 	s.indexFiles = files
 	return nil
+}
+
+// rememberIndex records the listing after this handle wrote its own index
+// files, which its index already holds. A file another writer saved in the
+// meantime is then loaded only at the next change of the listing; until then
+// its blobs may be uploaded again (deduplication only), and a tree read falls
+// back to serve-read's index refresh.
+func (s *serveWriteHandler) rememberIndex(ctx context.Context) {
+	files, err := s.listIndex(ctx)
+	if err != nil {
+		files = nil // load at the next request
+	}
+	s.indexFiles = files
+}
+
+func (s *serveWriteHandler) listIndex(ctx context.Context) (restic.IDSet, error) {
+	files := restic.NewIDSet()
+	err := s.repo.List(ctx, restic.IndexFile, func(id restic.ID, _ int64) error { files.Insert(id); return nil })
+	return files, err
 }
 
 // LoadBlob serves trees this request encoded but has not saved yet. The
@@ -370,6 +405,9 @@ func (s *serveWriteHandler) write(ctx context.Context, req *treeWriteRequest) (r
 	resp.Edits = receipts
 	if err = s.upload(ctx, f); err != nil {
 		return nil, err
+	}
+	if !f.root.IsNull() {
+		s.rememberIndex(ctx)
 	}
 	resp.TimingsMS["upload"] = since(start)
 	if err = s.snapshots(ctx, req, baseSn, f, start, resp); err != nil {

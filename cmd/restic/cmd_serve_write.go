@@ -265,6 +265,7 @@ func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest)
 		s.w.reset(repo)
 		s.broken = false
 	}
+	lockStart := time.Now()
 	unlock, lockCtx, err := s.lockRepo(ctx, s.w.repo)
 	if err != nil {
 		if restic.IsAlreadyLocked(err) {
@@ -272,12 +273,18 @@ func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest)
 		}
 		return nil, err
 	}
-	defer unlock()
-	start := time.Now()
-	if err = s.w.refreshIndex(lockCtx); err != nil {
+	// The lock is released before the answer, so a caller that has the
+	// answer knows this write holds no lock.
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			unlock()
+		}
+	}()
+	marks := map[string]float64{"lock": since(lockStart)}
+	if err = s.w.refreshIndex(lockCtx, marks); err != nil {
 		return nil, err
 	}
-	indexMS := since(start)
 	resp, err := s.w.write(lockCtx, req)
 	if err != nil {
 		var uploadErr *uploadError
@@ -286,7 +293,13 @@ func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest)
 		}
 		return nil, err
 	}
-	resp.TimingsMS["index"] = indexMS
+	unlockStart := time.Now()
+	unlocked = true
+	unlock()
+	marks["unlock"] = since(unlockStart)
+	for k, v := range marks {
+		resp.TimingsMS[k] = v
+	}
 	return resp, nil
 }
 

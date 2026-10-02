@@ -69,7 +69,8 @@ func (s *serveWriteHandler) indexed(n *data.Node) error {
 }
 
 // verifyWrite checks a tree-write result against the repository through the
-// verifier's own handle: it loads the index files the backend lists now,
+// verifier's own handle: its index holds exactly the index files the backend
+// lists now (refreshIndex),
 // replays the request on its source to check the plan, then loads the
 // candidate's new trees from the backend, bypassing every cache, and walks
 // both trees, requiring every referenced blob to be in that index. Nothing
@@ -100,10 +101,9 @@ func (s *serveWriteHandler) verifyWrite(ctx context.Context, v *verifyWriteReque
 func (s *serveWriteHandler) verify(ctx context.Context, req *treeWriteRequest, res *treeWriteResponse, marks map[string]float64) error {
 	start := time.Now()
 	s.resetState()
-	if err := s.repo.LoadIndex(ctx, nil); err != nil {
+	if err := s.refreshIndex(ctx, marks); err != nil {
 		return err
 	}
-	marks["index"] = since(start)
 	contents, err := s.verifyContents(ctx, req, res)
 	if err != nil {
 		return err
