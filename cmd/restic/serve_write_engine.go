@@ -66,7 +66,9 @@ func newServeWriteHandler(repo *repository.Repository, cfg serveWriteConfig) *se
 // reset replaces the repository handle, for example after a failed upload,
 // and drops every cache that could describe objects of the old handle.
 func (s *serveWriteHandler) reset(repo *repository.Repository) {
+	s.repoMu.Lock()
 	s.repo = repo
+	s.repoMu.Unlock()
 	s.cache = bloblru.New(64 << 20)
 	s.indexFiles = nil
 	s.resetState()

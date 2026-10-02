@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,10 +31,14 @@ import (
 
 func newServeReadCommand(gopts *global.Options) *cobra.Command {
 	var socket string
+	reads := defaultContentOptions()
 	cmd := &cobra.Command{Use: "serve-read --socket PATH", Short: "Serve exact snapshot reads over a private Unix socket", GroupID: cmdGroupAdvanced, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if socket == "" {
 				return errors.New("--socket is required")
+			}
+			if err := reads.validate(); err != nil {
+				return err
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -45,12 +51,15 @@ func newServeReadCommand(gopts *global.Options) *cobra.Command {
 			if err = repo.LoadIndex(ctx, printer); err != nil {
 				return err
 			}
-			if err := serveReadListen(ctx, socket, newServeReadHandler(repo)); err != nil {
+			h := newServeReadHandler(repo)
+			h.content = newContentReader(reads)
+			if err := serveReadListen(ctx, socket, h); err != nil {
 				return err
 			}
 			return ErrOK
 		}}
 	cmd.Flags().StringVar(&socket, "socket", "", "platform Unix socket `path` (mode 0600)")
+	reads.addFlags(cmd.Flags())
 	return cmd
 }
 
@@ -117,14 +126,27 @@ func serveReadListen(ctx context.Context, socket string, handler http.Handler) e
 }
 
 type serveReadHandler struct {
-	repo  *repository.Repository
-	cache *bloblru.Cache
+	// repo is written only under repoMu while holding gate. Gated requests
+	// read it directly; /skeleton and /v1/read read it through handle().
+	repo   *repository.Repository
+	repoMu sync.RWMutex
+	cache  *bloblru.Cache
+	// gate serializes every request except /skeleton and /v1/read, and
+	// every index load.
 	gate  chan struct{}
 	roots map[restic.ID]restic.ID
+
+	// State of the ungated endpoints: snapshot roots, the generation of
+	// index reloads they made (see withIndexRetry) and the content reader.
+	sourcesMu sync.Mutex
+	sources   map[restic.ID]restic.ID
+	indexGen  atomic.Uint64
+	content   *contentReader
 }
 
 func newServeReadHandler(repo *repository.Repository) *serveReadHandler {
-	return &serveReadHandler{repo: repo, cache: bloblru.New(64 << 20), gate: make(chan struct{}, 1), roots: make(map[restic.ID]restic.ID)}
+	return &serveReadHandler{repo: repo, cache: bloblru.New(64 << 20), gate: make(chan struct{}, 1), roots: make(map[restic.ID]restic.ID),
+		sources: make(map[restic.ID]restic.ID), content: newContentReader(defaultContentOptions())}
 }
 
 func (s *serveReadHandler) LoadBlob(ctx context.Context, typ restic.BlobType, id restic.ID, _ []byte) ([]byte, error) {
@@ -198,6 +220,16 @@ func serveReadError(w http.ResponseWriter, code int) { http.Error(w, http.Status
 func (s *serveReadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(r.RequestURI) > 8192 {
 		serveReadError(w, 414)
+		return
+	}
+	// The lazy-fill endpoints run concurrently with each other and with
+	// gated requests (doc/plori-lazy-fill.md).
+	switch r.URL.Path {
+	case "/skeleton":
+		s.serveSkeleton(w, r)
+		return
+	case contentReadPath:
+		s.serveContent(w, r)
 		return
 	}
 	method := http.MethodGet

@@ -43,6 +43,11 @@ backend/path/credential details. Requests are serialized, including streams,
 so index refresh cannot race repository reads. A long walk or slow reader can
 delay other requests; the platform must account for this when scheduling reads.
 
+The lazy-fill endpoints `GET /skeleton` (metadata stream of a snapshot) and
+`POST /v1/read` (content blob ranges) are not serialized; they are described
+in [plori-lazy-fill.md](plori-lazy-fill.md), with the flags `--read-workers`,
+`--read-memory-bytes` and `--read-cache-bytes` that bound them.
+
 Limits: 4 KiB prepare body, 8 KiB request URI, 16 KiB configured HTTP header
 limit, 5 s header timeout, 10 s request read timeout, 5 min response deadline,
 30 s idle timeout. Waiting requests honor cancellation. A shared 64 MiB blob

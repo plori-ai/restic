@@ -2,7 +2,9 @@
 
 `restic serve-write` writes standard restic snapshots from an existing tree plus
 edits, or from a merge plan, without a filesystem. It serves the read endpoints
-of `serve-read` ([plori-serve-read.md](plori-serve-read.md)) on the same socket.
+of `serve-read` ([plori-serve-read.md](plori-serve-read.md)) and the lazy-fill
+endpoints `/skeleton` and `/v1/read` ([plori-lazy-fill.md](plori-lazy-fill.md))
+on the same socket.
 The repository format does not change: stock restic reads, checks, restores and
 prunes what it writes.
 
@@ -25,6 +27,7 @@ the caller supplies all of them.
 | `--public-exclude PATTERN` | Name pattern (`path.Match`, compared in lower case) that the public twin leaves out at every depth. Repeatable. No default. |
 | `--trash-dir NAME` | Root directory name that the `trash`, `restore` and `empty-trash` edits use. Without it, those edits are refused. |
 | `--max-request-bytes N` | Body limit of `/tree-write` and `/verify-write` (default 96 MiB, minimum 1 MiB). |
+| `--read-workers`, `--read-memory-bytes`, `--read-cache-bytes` | Bounds of `/v1/read`, as for `serve-read` ([plori-lazy-fill.md](plori-lazy-fill.md)). |
 
 Repository, password, backend credentials and cache flags are the ordinary
 restic options and environment. No request selects a repository, a password, a
@@ -45,7 +48,10 @@ credential or a host path: the process configuration does.
   index file disappeared, a prune ran: the writer also drops its projection
   cache, its content-token index and its loaded snapshots. After its own upload
   it records the listing again.
-- Requests are serialized, reads included, as in `serve-read`.
+- Requests are serialized, reads included, as in `serve-read`, except
+  `/skeleton` and `/v1/read`: they run concurrently with each other and with
+  writes, and take the request gate only to reload the index after a lookup
+  miss ([plori-lazy-fill.md](plori-lazy-fill.md)).
 - SIGINT and SIGTERM cancel running requests, stop the listener, wait until
   every running write returned and removed its lock file, and then exit.
 - A failed upload leaves upstream's uploader state unusable
@@ -65,7 +71,7 @@ Every request body carries `"version": 1`. Another version is refused with 400
 so a newer client cannot have a field silently ignored. `GET /version` answers:
 
 ```json
-{"protocol":"tree-write","version":1,"restic":"0.19.1-dev","endpoints":["/version","/prepare-write","/tree-write","/verify-write","/prepare","/tree","/walk","/file","/snapshots"],"trash_dir":".plori-trash","public_excludes":["lost+found", "..."]}
+{"protocol":"tree-write","version":1,"restic":"0.19.1-dev","endpoints":["/version","/prepare-write","/tree-write","/verify-write","/prepare","/tree","/walk","/file","/snapshots","/skeleton","/v1/read"],"trash_dir":".plori-trash","public_excludes":["lost+found", "..."]}
 ```
 
 A caller probes `/version` and refuses to admit writes when the protocol or

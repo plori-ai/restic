@@ -42,6 +42,7 @@ type repoOpener func(ctx context.Context, verifier bool) (*repository.Repository
 func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 	var socket string
 	cfg := serveWriteConfig{}
+	reads := defaultContentOptions()
 	cmd := &cobra.Command{Use: "serve-write --socket PATH", Short: "Serve snapshot reads and tree-native snapshot writes over a private Unix socket", GroupID: cmdGroupAdvanced, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if socket == "" {
@@ -52,6 +53,9 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 			}
 			if cfg.maxRequest < 1<<20 {
 				return errors.New("--max-request-bytes must be at least 1 MiB")
+			}
+			if err := reads.validate(); err != nil {
+				return err
 			}
 			for _, p := range append([]string{cfg.trashDir}, cfg.excludes...) {
 				if err := checkName(p); p != "" && err != nil {
@@ -79,6 +83,7 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			srv.w.content = newContentReader(reads)
 			err = serveReadListen(ctx, socket, srv)
 			// Requests were canceled with ctx; wait until each write released
 			// its repository lock.
@@ -92,6 +97,7 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 	cmd.Flags().StringArrayVar(&cfg.excludes, "public-exclude", nil, "name `pattern` the public twin leaves out at every depth (path.Match, case-insensitive; repeatable)")
 	cmd.Flags().StringVar(&cfg.trashDir, "trash-dir", "", "root directory `name` for the trash, restore and empty-trash edits")
 	cmd.Flags().Int64Var(&cfg.maxRequest, "max-request-bytes", 96<<20, "maximum tree-write or verify-write request body `size`")
+	reads.addFlags(cmd.Flags())
 	return cmd
 }
 
@@ -176,7 +182,7 @@ func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, versionResponse{Protocol: "tree-write", Version: treeWriteVersion, Restic: global.Version,
-			Endpoints: []string{"/version", "/prepare-write", "/tree-write", "/verify-write", "/prepare", "/tree", "/walk", "/file", "/snapshots"},
+			Endpoints: []string{"/version", "/prepare-write", "/tree-write", "/verify-write", "/prepare", "/tree", "/walk", "/file", "/snapshots", "/skeleton", contentReadPath},
 			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...)})
 		return
 	case "/prepare-write", "/tree-write", "/verify-write":
