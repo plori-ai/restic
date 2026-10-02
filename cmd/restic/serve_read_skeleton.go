@@ -24,8 +24,7 @@ import (
 // a framed binary description of one snapshot's tree that a skeleton builder
 // turns into a native tree without file content.
 const (
-	lzfmMagic   = "LZFM"
-	lzfmVersion = 1
+	lzfmMagic = "LZFM"
 	// lzfmMaxFrame bounds a frame payload.
 	lzfmMaxFrame = 16 << 20
 	// Linux and ext4 limits that the protocol enforces.
@@ -69,10 +68,13 @@ type lzfmCounts struct {
 	records, dirs, files, symlinks, others, fileBytes uint64
 }
 
-func newLZFMEncoder(w io.Writer) *lzfmEncoder {
+func newLZFMEncoder(w io.Writer) *lzfmEncoder { return newLZFEncoder(w, lzfmMagic) }
+
+// newLZFEncoder starts a stream of any lazyfill format, version 1.
+func newLZFEncoder(w io.Writer, magic string) *lzfmEncoder {
 	e := &lzfmEncoder{w: bufio.NewWriterSize(w, 1<<20), h: sha256.New()}
-	_, _ = e.w.WriteString(lzfmMagic)
-	_, _ = e.w.Write(binary.AppendUvarint(nil, lzfmVersion))
+	_, _ = e.w.WriteString(magic)
+	_, _ = e.w.Write(binary.AppendUvarint(nil, 1))
 	return e
 }
 

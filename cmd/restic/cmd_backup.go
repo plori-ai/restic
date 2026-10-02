@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -111,7 +112,13 @@ type BackupOptions struct {
 	NoScan            bool
 	SkipIfUnchanged   bool
 
+	// LazyfillReuseMapFD (0: none) and LazyfillReuseBinding install the
+	// reuse map of a lazily filled working copy (backup_lazyfill_reuse.go).
+	LazyfillReuseMapFD   int
+	LazyfillReuseBinding string
+
 	readConcurrencyFlag *pflag.Flag
+	reuseBindingFlag    *pflag.Flag
 }
 
 func (opts *BackupOptions) AddFlags(f *pflag.FlagSet) {
@@ -154,8 +161,11 @@ func (opts *BackupOptions) AddFlags(f *pflag.FlagSet) {
 		f.BoolVar(&opts.ExcludeCloudFiles, "exclude-cloud-files", false, "excludes online-only cloud files (such as OneDrive, iCloud drive, …)")
 	}
 	f.BoolVar(&opts.SkipIfUnchanged, "skip-if-unchanged", false, "skip snapshot creation if identical to parent snapshot")
+	f.IntVar(&opts.LazyfillReuseMapFD, "lazyfill-reuse-map-fd", 0, "read a lazyfill reuse map from file descriptor `n`: listed files whose inode, size and blobs match are stored without reading them, every other regular file is read (no reuse by parent metadata); requires --lazyfill-reuse-binding and the single target '.'")
+	f.StringVar(&opts.LazyfillReuseBinding, "lazyfill-reuse-binding", "", "`base64` (standard, padded) binding that the reuse map must carry; on a mismatch or a malformed map no file is reused")
 
 	opts.readConcurrencyFlag = f.Lookup("read-concurrency")
+	opts.reuseBindingFlag = f.Lookup("lazyfill-reuse-binding")
 
 	// parse host from env, if not exists or empty the default value will be used
 	if host := os.Getenv("RESTIC_HOST"); host != "" {
@@ -316,6 +326,19 @@ func (opts BackupOptions) Check(gopts global.Options, args []string) error {
 
 		if len(args) > 0 && !opts.StdinCommand {
 			return errors.Fatal("--stdin was specified and files/dirs were listed as arguments")
+		}
+	}
+
+	if opts.LazyfillReuseMapFD != 0 || (opts.reuseBindingFlag != nil && opts.reuseBindingFlag.Changed) {
+		if opts.LazyfillReuseMapFD < 3 || opts.reuseBindingFlag == nil || !opts.reuseBindingFlag.Changed {
+			return errors.Fatal("--lazyfill-reuse-map-fd (3 or larger) and --lazyfill-reuse-binding must be used together")
+		}
+		if _, err := base64.StdEncoding.DecodeString(opts.LazyfillReuseBinding); err != nil {
+			return errors.Fatal("--lazyfill-reuse-binding is not standard base64")
+		}
+		// Reuse map paths are relative to the backup root.
+		if opts.Stdin || opts.StdinCommand || len(opts.FilesFrom)+len(opts.FilesFromVerbatim)+len(opts.FilesFromRaw) > 0 || len(args) != 1 || args[0] != "." {
+			return errors.Fatal("--lazyfill-reuse-map-fd requires the single target '.'")
 		}
 	}
 
@@ -671,6 +694,19 @@ func runBackup(ctx context.Context, opts BackupOptions, gopts global.Options, te
 	}
 	if opts.IgnoreCtime {
 		arch.ChangeIgnoreFlags |= archiver.ChangeIgnoreCtime
+	}
+	if opts.LazyfillReuseMapFD != 0 {
+		// Installed even when the map is unusable: then every regular file
+		// is read.
+		binding, _ := base64.StdEncoding.DecodeString(opts.LazyfillReuseBinding)
+		f := os.NewFile(uintptr(opts.LazyfillReuseMapFD), "lazyfill-reuse-map")
+		reuse, err := readLazyfillReuse(f, binding)
+		_ = f.Close()
+		if err != nil {
+			printer.E("lazyfill reuse map not used, every file is read: %v", err)
+			reuse = nil
+		}
+		arch.ReuseContent = reuse.reuser(repo)
 	}
 
 	snapshotOpts := archiver.SnapshotOptions{

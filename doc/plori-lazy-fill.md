@@ -1,9 +1,11 @@
-# Plori lazy-fill endpoints (`/skeleton`, `/v1/read`), protocol version 1
+# Plori lazy fill: `/skeleton`, `/v1/read` and the backup reuse map, protocol version 1
 
 A lazy working copy is a native local tree that has every name and all
 metadata of a snapshot, while the bytes of regular files are filled from the
 repository on first access. `restic serve-read` and `restic serve-write` serve
-the two inputs of such a copy on their Unix socket:
+the two inputs of such a copy on their Unix socket, and `restic backup` saves
+such a copy without reading the files whose content is known
+([Backup reuse map](#backup-reuse-map)):
 
 - `GET /skeleton?snapshot=ID` streams the snapshot's metadata in the lazyfill
   metadata-stream format (`LZFM`, version 1).
@@ -164,10 +166,54 @@ or a gated stream (`/walk`) holds the gate waits for it within its deadline.
 lock that these endpoints read it through; a request that started on the old
 handle finishes with it.
 
+## Backup reuse map
+
+```
+restic backup --ignore-inode --ignore-ctime --parent S \
+    --lazyfill-reuse-map-fd 3 --lazyfill-reuse-binding <base64> .
+```
+
+A privileged classifier of the lazy copy (lazyfill `save.Classify`) lists the
+regular files whose content is known without reading them (for example, files
+that no process has opened since the copy was built). `backup` reads that list, a
+lazyfill reuse map (`LZFR`, version 1, same framing as above), from file
+descriptor N (3 or larger) to its end, and closes it. The caller rewinds the
+descriptor before each backup.
+
+| Frame | Tag | Field | Type |
+|---|---|---|---|
+| header | 1 | binding | bytes, optional, at most 1024 bytes |
+| record | 1 | path | bytes: relative to the backup root, raw bytes, the record path rules of the metadata stream, non-empty, unique |
+| record | 2 | ino | uint: inode number on the classified tree |
+| record | 3 | size | uint, > 0 |
+| record | 4 | blob | blob value as in the metadata stream, repeated, at least one; lengths sum to `size` |
+| trailer | 1, 2 | count, digest | uint, bytes (SHA-256 over the header and record frames) |
+
+`--lazyfill-reuse-binding` is standard padded base64; its bytes must equal
+the map's binding. Both flags are required together, and the only target must
+be `.` (record paths are relative to it); otherwise the command fails.
+
+With the flags, the parent snapshot is no longer used to skip reading a
+regular file (`--ignore-inode`, `--ignore-ctime` and unchanged size and mtime
+do not matter). A regular file is stored with the blobs of its record,
+without opening it for reading, only when its snapshot path (without the
+leading `/`) has a record, its inode and size equal the record's, and every
+blob is a 32-byte ID that is in the repository index with the record's
+length. Its metadata (mode, owner, times, extended attributes) is taken from
+the file as usual, from `lstat` and path-based attribute calls. Every other
+regular file is read and hashed. A map that is malformed in any part, cannot
+be read, or carries another binding grants no reuse: a warning is printed and
+every regular file is read. Without the flags, `backup` behaves as upstream.
+
 ## Tests and measurements
 
 `cmd/restic/serve_read_skeleton_test.go` and
-`cmd/restic/serve_read_content_test.go` cover the endpoints. Generated
+`cmd/restic/serve_read_content_test.go` cover the endpoints;
+`cmd/restic/backup_lazyfill_reuse_test.go` covers the reuse map (a listed file
+without read permission is stored with the listed blobs; inode, size and
+missing-blob mismatches, unlisted files, a same-size rewrite with the parent's
+mtime, another binding, a truncated map and an empty map are read; stock
+behaviour without the flags; flag validation; malformed maps). Generated
 snapshots of 50,521 and 296,041 nodes (files of zero to three blobs, empty
 files, symlinks with non-UTF-8 targets, three-name hard-link groups, extended
 attributes including a stale `trusted.lazyfill`, non-UTF-8 names, FIFOs,

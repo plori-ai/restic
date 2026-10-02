@@ -129,6 +129,15 @@ type Archiver struct {
 
 	// Flags controlling change detection. See doc/040_backup.rst for details.
 	ChangeIgnoreFlags uint
+
+	// ReuseContent, when set, replaces the comparison with the parent
+	// snapshot for regular files: a file's content is read unless
+	// ReuseContent returns its complete list of content blobs, which is then
+	// stored without opening the file for reading. The node's metadata comes
+	// from the file as usual. snPath is the file's path in the snapshot, fi
+	// its metadata from the metadata-only open. It may be called
+	// concurrently.
+	ReuseContent func(snPath string, fi *fs.ExtendedFileInfo) (restic.IDs, bool)
 }
 
 // Flags for the ChangeIgnoreFlags bitfield.
@@ -521,9 +530,20 @@ func (arch *Archiver) save(ctx context.Context, snPath, target string, previous 
 	case fi.Mode.IsRegular():
 		debug.Log("  %v regular file", target)
 
-		// check if the file has not changed before performing a fopen operation (more expensive, specially
-		// in network filesystems)
-		if previous != nil && !fileChanged(fi, previous, arch.ChangeIgnoreFlags) {
+		if arch.ReuseContent != nil {
+			if content, ok := arch.ReuseContent(snPath, fi); ok {
+				node, err := arch.nodeFromFileInfo(snPath, target, meta, false)
+				if err != nil {
+					return futureNode{}, false, err
+				}
+				node.Content = content
+				arch.trackItem(snPath, previous, node, ItemStats{}, time.Since(start))
+				arch.CompleteBlob(node.Size)
+				return newFutureNodeWithResult(futureNodeResult{snPath: snPath, target: target, node: node}), false, nil
+			}
+		} else if previous != nil && !fileChanged(fi, previous, arch.ChangeIgnoreFlags) {
+			// check if the file has not changed before performing a fopen operation (more expensive, specially
+			// in network filesystems)
 			if arch.allBlobsPresent(previous) {
 				debug.Log("%v hasn't changed, using old list of blobs", target)
 				arch.trackItem(snPath, previous, previous, ItemStats{}, time.Since(start))
