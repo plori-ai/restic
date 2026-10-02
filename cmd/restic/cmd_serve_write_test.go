@@ -784,6 +784,25 @@ func TestServeWriteMergeEntries(t *testing.T) {
 	f.preserved(got, currentNodes, []string{"a", "a/b", "a/mode", "c/d/e/deep", "c/d/e", "c", "c/d"}, nil)
 	rtest.Assert(t, resp.Public != nil && resp.Public.Tree == resp.Head.Tree, "twin of a tree without private names differs")
 
+	// A conflicted comparison still writes the pair: conflicted paths keep
+	// current's node (here a/b/file2, which incoming also changed), clean
+	// changes apply (incoming's deep file).
+	conflicted := map[string]*data.Node{}
+	for p, n := range currentNodes {
+		if !strings.HasPrefix(p, ".forge") && !strings.HasPrefix(p, ".plori-trash") {
+			conflicted[p] = n
+		}
+	}
+	conflicted["c/d/e/deep"] = incomingNodes["c/d/e/deep"]
+	creq := f.request(current)
+	creq.Edits = nil
+	creq.Merge = &mergePlan{Sources: []treeSource{{Snapshot: incoming.String()}}, Entries: entriesOf(conflicted)}
+	cresp := f.write(creq)
+	rtest.Assert(t, cresp.Public != nil && cresp.Public.Tree == cresp.Head.Tree, "conflicted merge twin: %+v", cresp.Public)
+	cgot := f.flatten(cresp.Head.Snapshot)
+	rtest.Equals(t, incomingNodes["c/d/e/deep"].Content, cgot["c/d/e/deep"].Content)
+	f.preserved(cgot, currentNodes, []string{"c", "c/d", "c/d/e", "c/d/e/deep"}, nil)
+
 	// A plan that names content no source holds is refused before writing.
 	snapshots := f.countFiles(restic.SnapshotFile)
 	req2 := f.request(current)
