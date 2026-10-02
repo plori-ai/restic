@@ -114,7 +114,8 @@ func (s *serveWriteHandler) mergeWrite(ctx context.Context, req *writeRequest) (
 		sources = append(sources, root)
 	}
 	resp := &writeResponse{TimingsMS: map[string]float64{"load": since(start)}}
-	b := &mergeBuild{s: s, req: req, sources: sources, children: map[string][]*data.Node{}, dirNodes: map[string]*data.Node{}, synth: map[string]*data.Node{}}
+	b := &mergeBuild{s: s, req: req, sources: sources, children: map[string][]*data.Node{}, dirNodes: map[string]*data.Node{}, synth: map[string]*data.Node{},
+		same: map[*data.Node]bool{}, groupSize: map[string]int{}, marks: resp.TimingsMS}
 	root, err := b.build(ctx, baseRoot)
 	if err != nil {
 		return nil, err
@@ -139,6 +140,11 @@ type mergeBuild struct {
 	children map[string][]*data.Node
 	dirNodes map[string]*data.Node
 	synth    map[string]*data.Node
+	// same marks nodes copied from the base without a change; a directory
+	// whose nodes are all such copies keeps the base subtree ID.
+	same      map[*data.Node]bool
+	groupSize map[string]int
+	marks     map[string]float64
 }
 
 // baseNode is the base snapshot's node at p; a path the base cannot resolve
@@ -161,6 +167,10 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 	ino := st.maxInode
 	owner := b.req.owner()
 	b.base = s.newEditTree(baseRoot, time.Now(), owner, &ino)
+	// Base directories are decoded without the round-trip guard; the guard
+	// runs on each base directory whose nodes are encoded again below.
+	b.base.noGuard = true
+	start := time.Now()
 	labels := map[inodeKey]string{}
 	for key, names := range st.linkGroups() {
 		rels := make([]string, 0, len(names))
@@ -171,6 +181,19 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 	}
 	entries := append([]mergeEntry(nil), b.req.Entries...)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	for _, e := range entries {
+		if e.LinkGroup != "" {
+			b.groupSize[e.LinkGroup]++
+		}
+	}
+	paths := make([]string, len(entries))
+	for i := range entries {
+		paths[i] = entries[i].Path
+	}
+	if err = b.base.prefetch(ctx, paths); err != nil {
+		return restic.ID{}, err
+	}
+	b.marks["merge_prefetch"] = since(start)
 	bases := make([]*data.Node, len(entries))
 	keep := make([]bool, len(entries))
 	groupKeep := map[string]bool{}
@@ -203,6 +226,7 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 			keep[i] = false
 		}
 	}
+	b.marks["merge_lookup"] = since(start)
 	t := b.base
 	for i := range entries {
 		e := &entries[i]
@@ -219,6 +243,7 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 			}
 		}
 	}
+	b.marks["merge_nodes"] = since(start)
 	dirs := make([]string, 0, len(b.children))
 	for p := range b.children {
 		dirs = append(dirs, p)
@@ -227,24 +252,28 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 	var root restic.ID
 	for _, p := range dirs {
 		nodes := b.children[p]
-		if p != "" {
-			// A directory whose names differ from the base directory's had
-			// entries created or removed: its mtime and ctime change.
-			old, err := t.tryDir(ctx, p)
-			var refusal *writeRefusal
-			if errors.As(err, &refusal) {
-				old, err = nil, nil
-			}
-			if err != nil {
-				return restic.ID{}, err
-			}
-			if n := b.dirNodes[p]; old != nil && !sameNames(old.nodes, nodes) {
-				n.ModTime, n.AccessTime, n.ChangeTime = t.now, t.now, t.ctime(n.ChangeTime)
-			}
-		}
-		id, err := s.encode(ctx, nodes)
+		old, oldID, err := b.baseDir(ctx, p)
 		if err != nil {
 			return restic.ID{}, err
+		}
+		var id restic.ID
+		if old != nil && b.unchanged(old, nodes) {
+			id = oldID
+		} else {
+			if old != nil {
+				if err = s.guardTree(oldID, old.nodes); err != nil {
+					return restic.ID{}, err
+				}
+			}
+			// A directory whose names differ from the base directory's had
+			// entries created or removed: its mtime and ctime change.
+			if n := b.dirNodes[p]; p != "" && old != nil && !sameNames(old.nodes, nodes) {
+				n.ModTime, n.AccessTime, n.ChangeTime = t.now, t.now, t.ctime(n.ChangeTime)
+				b.same[n] = false
+			}
+			if id, err = s.encode(ctx, nodes); err != nil {
+				return restic.ID{}, err
+			}
 		}
 		if p == "" {
 			root = id
@@ -252,7 +281,44 @@ func (b *mergeBuild) build(ctx context.Context, baseRoot restic.ID) (restic.ID, 
 			b.dirNodes[p].Subtree = &id
 		}
 	}
+	b.marks["merge_encode"] = since(start)
 	return root, nil
+}
+
+// baseDir returns the base directory at p and its tree ID, nil when the base
+// has no directory there.
+func (b *mergeBuild) baseDir(ctx context.Context, p string) (*editDir, restic.ID, error) {
+	t := b.base
+	if p == "" {
+		if t.root.IsNull() {
+			return nil, restic.ID{}, nil
+		}
+		d, err := t.tryDir(ctx, "")
+		return d, t.root, err
+	}
+	n, err := b.baseNode(ctx, p)
+	if err != nil || n == nil || n.Type != data.NodeTypeDir || n.Subtree == nil {
+		return nil, restic.ID{}, err
+	}
+	d, err := t.tryDir(ctx, p)
+	return d, *n.Subtree, err
+}
+
+// unchanged reports whether nodes are exactly the base directory's nodes.
+func (b *mergeBuild) unchanged(old *editDir, nodes []*data.Node) bool {
+	if len(old.nodes) != len(nodes) {
+		return false
+	}
+	for _, n := range nodes {
+		o := old.nodes[n.Name]
+		if o == nil || !b.same[n] {
+			return false
+		}
+		if n.Type == data.NodeTypeDir && (o.Subtree == nil || n.Subtree == nil || *o.Subtree != *n.Subtree) {
+			return false
+		}
+	}
+	return true
 }
 
 func sameNames(old map[string]*data.Node, nodes []*data.Node) bool {
@@ -269,7 +335,7 @@ func sameNames(old map[string]*data.Node, nodes []*data.Node) bool {
 
 // policy gives a retained node the entry's mode and the worker owner; a change
 // sets ctime, as chmod/chown do.
-func (b *mergeBuild) policy(n *data.Node, e *mergeEntry) {
+func (b *mergeBuild) policy(n *data.Node, e *mergeEntry) bool {
 	owner := b.req.owner()
 	mode := unixMode(e.Mode)
 	changed := n.UID != owner[0] || n.GID != owner[1]
@@ -286,6 +352,7 @@ func (b *mergeBuild) policy(n *data.Node, e *mergeEntry) {
 		}
 		n.ChangeTime = b.base.ctime(n.ChangeTime)
 	}
+	return changed
 }
 
 func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, keep bool, device uint64) (*data.Node, error) {
@@ -302,8 +369,7 @@ func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, k
 	case "dir":
 		if base != nil && base.Type == data.NodeTypeDir {
 			n := *base
-			n.Subtree = nil
-			b.policy(&n, e)
+			b.same[&n] = !b.policy(&n, e)
 			return &n, nil
 		}
 		fresh.Type, fresh.Mode, fresh.Inode = data.NodeTypeDir, os.ModeDir|fresh.Mode, t.newInode()
@@ -311,7 +377,7 @@ func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, k
 	case "symlink":
 		if base != nil && base.Type == data.NodeTypeSymlink && symlinkTarget(base) == e.Target {
 			n := *base
-			b.policy(&n, e)
+			b.same[&n] = !b.policy(&n, e)
 			return &n, nil
 		}
 		fresh.Type, fresh.Mode, fresh.Inode, fresh.Links = data.NodeTypeSymlink, os.ModeSymlink|0777, t.newInode(), 1
@@ -324,7 +390,7 @@ func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, k
 	}
 	if keep {
 		n := *base
-		b.policy(&n, e)
+		b.same[&n] = !b.policy(&n, e)
 		return &n, nil
 	}
 	if tmpl := b.synth[e.LinkGroup]; e.LinkGroup != "" && tmpl != nil {
@@ -337,13 +403,7 @@ func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, k
 	}
 	fresh.Type, fresh.Inode, fresh.Links, fresh.Size, fresh.Content = data.NodeTypeFile, t.newInode(), 1, uint64(e.Size), content
 	if e.LinkGroup != "" {
-		n := 0
-		for i := range b.req.Entries {
-			if b.req.Entries[i].LinkGroup == e.LinkGroup {
-				n++
-			}
-		}
-		fresh.Links, fresh.DeviceID = uint64(n), device
+		fresh.Links, fresh.DeviceID = uint64(b.groupSize[e.LinkGroup]), device
 		tmpl := *fresh
 		b.synth[e.LinkGroup] = &tmpl
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/restic/restic/internal/data"
 	"github.com/restic/restic/internal/restic"
+	"golang.org/x/sync/errgroup"
 )
 
 // writeRefusal is a precondition that did not hold. Nothing of the request is
@@ -96,18 +97,37 @@ func (s *serveWriteHandler) loadNodes(ctx context.Context, id restic.ID, guard b
 		nodes = append(nodes, item.Node)
 	}
 	if guard {
-		b := data.NewTreeJSONBuilder()
-		for _, n := range nodes {
-			if err := b.AddNode(n); err != nil {
-				return nil, err
-			}
-		}
-		buf, _ := b.Finalize()
-		if restic.Hash(buf) != id {
-			return nil, fmt.Errorf("cannot encode tree %v without losing information", id.Str())
+		if err = guardNodes(id, nodes); err != nil {
+			return nil, err
 		}
 	}
 	return nodes, nil
+}
+
+// guardNodes re-encodes a decoded tree and refuses it unless the bytes hash to
+// its ID.
+func guardNodes(id restic.ID, nodes []*data.Node) error {
+	b := data.NewTreeJSONBuilder()
+	for _, n := range nodes {
+		if err := b.AddNode(n); err != nil {
+			return err
+		}
+	}
+	buf, _ := b.Finalize()
+	if restic.Hash(buf) != id {
+		return fmt.Errorf("cannot encode tree %v without losing information", id.Str())
+	}
+	return nil
+}
+
+// guardTree checks a directory loaded without the guard.
+func (s *serveWriteHandler) guardTree(id restic.ID, byName map[string]*data.Node) error {
+	nodes := make([]*data.Node, 0, len(byName))
+	for _, n := range byName {
+		nodes = append(nodes, n)
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
+	return guardNodes(id, nodes)
 }
 
 func (s *serveWriteHandler) cachedStats(id restic.ID) (*treeStats, bool) {
@@ -301,6 +321,9 @@ type editTree struct {
 	now   time.Time
 	owner [2]uint32
 	ino   *uint64
+	// noGuard decodes directories without the round-trip check; the caller
+	// must check a directory before encoding its nodes again.
+	noGuard bool
 }
 
 type editDir struct {
@@ -349,7 +372,7 @@ func (t *editTree) tryDir(ctx context.Context, p string) (*editDir, error) {
 	}
 	d := &editDir{nodes: map[string]*data.Node{}}
 	if !id.IsNull() {
-		nodes, err := t.s.loadNodes(ctx, id, true)
+		nodes, err := t.s.loadNodes(ctx, id, !t.noGuard)
 		if err != nil {
 			return nil, err
 		}
@@ -359,6 +382,63 @@ func (t *editTree) tryDir(ctx context.Context, p string) (*editDir, error) {
 	}
 	t.dirs[p] = d
 	return d, nil
+}
+
+// prefetch loads the directories of the given paths, one depth level at a
+// time with up to eight decoders, so a lookup of many paths does not decode
+// the trees one after another. Components that are not directories are left
+// to tryDir.
+func (t *editTree) prefetch(ctx context.Context, paths []string) error {
+	if _, err := t.tryDir(ctx, ""); err != nil {
+		return err
+	}
+	levels := map[int]map[string]bool{}
+	for _, p := range paths {
+		for d := dirOf(p); d != ""; d = dirOf(d) {
+			k := treeDepth(d)
+			if levels[k] == nil {
+				levels[k] = map[string]bool{}
+			}
+			if levels[k][d] {
+				break
+			}
+			levels[k][d] = true
+		}
+	}
+	for depth := 1; levels[depth] != nil; depth++ {
+		var dirs []string
+		var ids []restic.ID
+		for d := range levels[depth] {
+			parent := t.dirs[dirOf(d)]
+			if _, done := t.dirs[d]; done || parent == nil {
+				continue
+			}
+			if n := parent.nodes[path.Base(d)]; n != nil && n.Type == data.NodeTypeDir && n.Subtree != nil {
+				dirs, ids = append(dirs, d), append(ids, *n.Subtree)
+			}
+		}
+		loaded := make([][]*data.Node, len(ids))
+		var g errgroup.Group
+		g.SetLimit(8)
+		for i := range ids {
+			g.Go(func() error {
+				var err error
+				loaded[i], err = t.s.loadNodes(ctx, ids[i], !t.noGuard)
+				return err
+			})
+		}
+		if err := g.Wait(); err != nil {
+			return err
+		}
+		for i, d := range dirs {
+			ed := &editDir{nodes: make(map[string]*data.Node, len(loaded[i]))}
+			for _, n := range loaded[i] {
+				ed.nodes[n.Name] = n
+			}
+			t.dirs[d] = ed
+		}
+	}
+	return nil
 }
 
 func (t *editTree) node(ctx context.Context, p string) (*data.Node, error) {
