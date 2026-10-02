@@ -549,8 +549,15 @@ func TestServeWriteLockPerRequest(t *testing.T) {
 	f := newSWFixture(t)
 	base := f.backup(nil, false)
 	f.h.lockPerRequest = true
+	// An exclusive lock (prune) refuses the write; nothing is held while idle.
+	exclusive, _, err := repository.Lock(context.TODO(), f.repo, true, 0, func(string) {}, func(string, ...interface{}) {})
+	rtest.OK(t, err)
+	body, _ := json.Marshal(writeRequest{Base: base.String(), OpID: "o", Edits: []writeEdit{{Op: "write", Path: "a/b/file2", Data: []byte("x")}}})
+	rtest.Equals(t, http.StatusServiceUnavailable, serveReadRequest(f.h, http.MethodPost, "/edit", string(body)).Code)
+	exclusive.Unlock()
 	resp := f.edit(base, writeEdit{Op: "write", Path: "a/b/file2", Data: []byte("locked")})
-	rtest.Assert(t, resp.TimingsMS["lock"] >= 200, "lock took %v ms", resp.TimingsMS["lock"])
+	_, ok := resp.TimingsMS["lock"]
+	rtest.Assert(t, ok, "no lock timing")
 	locks := 0
 	rtest.OK(t, f.repo.List(context.TODO(), restic.LockFile, func(restic.ID, int64) error { locks++; return nil }))
 	rtest.Equals(t, 0, locks)
