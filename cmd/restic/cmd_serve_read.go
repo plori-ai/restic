@@ -204,7 +204,7 @@ func (s *serveReadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/prepare":
 		method = http.MethodPost
-	case "/tree", "/walk", "/file", "/snapshots":
+	case "/tree", "/walk", "/skeleton", "/file", "/snapshots":
 	default:
 		serveReadError(w, 404)
 		return
@@ -310,6 +310,12 @@ func (s *serveReadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}{p, node})
 		}})
 		if err != nil {
+			w.Header().Set("X-Restic-Error", "read failed")
+		}
+	case "/skeleton":
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Trailer", "X-Restic-Error")
+		if err := s.skeleton(r.Context(), w, root); err != nil {
 			w.Header().Set("X-Restic-Error", "read failed")
 		}
 	case "/tree", "/file":
