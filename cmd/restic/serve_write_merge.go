@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/restic/restic/internal/data"
 	"github.com/restic/restic/internal/restic"
@@ -17,9 +16,11 @@ import (
 const mergeMaxEntries = 1000000
 
 // validateEntries applies the helper's manifest checks (workspacehelper
-// validate): canonical relative paths, no public-excluded segment, a directory
-// parent for every entry, and consistent link groups of at least two names.
-func (s *serveWriteHandler) validateEntries(entries []mergeEntry) error {
+// validate): canonical relative paths, a directory parent for every entry, and
+// consistent link groups of at least two names. A plan without selectors may
+// not hold a public-excluded segment; a selected plan is the lossless head and
+// may (doc/plori-tree-write.md).
+func (s *serveWriteHandler) validateEntries(entries []mergeEntry, private bool) error {
 	if len(entries) > mergeMaxEntries {
 		return invalidf("entry count %d", len(entries))
 	}
@@ -31,7 +32,7 @@ func (s *serveWriteHandler) validateEntries(entries []mergeEntry) error {
 			return err
 		}
 		for _, part := range strings.Split(e.Path, "/") {
-			if s.excluded(part) {
+			if !private && s.excluded(part) {
 				return invalidf("private path %q", e.Path)
 			}
 		}
@@ -91,8 +92,12 @@ func (s *serveWriteHandler) validateEntries(entries []mergeEntry) error {
 // Content comes from the base and source snapshots by the entry's blob token,
 // or from a request content whose SHA-256 is the entry's digest.
 func (s *serveWriteHandler) mergeWrite(ctx context.Context, req *treeWriteRequest, contents []contentItem, baseRoot restic.ID, marks map[string]float64) (restic.ID, error) {
-	if err := s.validateEntries(req.Merge.Entries); err != nil {
+	selected := req.Merge.selected()
+	if err := s.validateEntries(req.Merge.Entries, selected); err != nil {
 		return restic.ID{}, err
+	}
+	if selected {
+		return s.selectWrite(ctx, req, contents, baseRoot, marks)
 	}
 	var sources []restic.ID
 	for _, src := range req.Merge.Sources {
@@ -358,11 +363,9 @@ func (b *mergeBuild) node(ctx context.Context, e *mergeEntry, base *data.Node, k
 			return &n, nil
 		}
 		fresh.Type, fresh.Mode, fresh.Inode, fresh.Links = data.NodeTypeSymlink, os.ModeSymlink|0777, t.newInode(), 1
-		if utf8.ValidString(e.Target) {
-			fresh.LinkTarget = e.Target
-		} else {
-			fresh.LinkTargetRaw = []byte(e.Target)
-		}
+		// The in-memory node holds raw target bytes in LinkTarget; the
+		// encoder writes linktarget_raw itself (data.Node.MarshalJSON).
+		fresh.LinkTarget = e.Target
 		return fresh, nil
 	}
 	if keep {

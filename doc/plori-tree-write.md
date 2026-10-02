@@ -71,11 +71,21 @@ Every request body carries `"version": 1`. Another version is refused with 400
 so a newer client cannot have a field silently ignored. `GET /version` answers:
 
 ```json
-{"protocol":"tree-write","version":1,"restic":"0.19.1-dev","endpoints":["/version","/prepare-write","/tree-write","/verify-write","/prepare","/tree","/walk","/file","/snapshots","/skeleton","/v1/read"],"trash_dir":".plori-trash","public_excludes":["lost+found", "..."]}
+{"protocol":"tree-write","version":1,"restic":"0.19.1-dev","endpoints":["/version","/prepare-write","/tree-write","/verify-write","/prepare","/tree","/walk","/file","/snapshots","/skeleton","/v1/read"],"trash_dir":".plori-trash","public_excludes":["lost+found", "..."],"features":["merge-source-selectors"]}
 ```
 
 A caller probes `/version` and refuses to admit writes when the protocol or
 version is not the one it implements.
+
+`features` lists optional additions to version 1. A caller sends the fields of
+a feature only when `/version` names it. A server without the feature refuses
+those fields as unknown (400 `invalid_request`); it never ignores them. Requests
+without them mean what they meant before the feature. A change that alters the
+meaning of an existing request raises `version` instead.
+
+| Feature | Fields |
+|---|---|
+| `merge-source-selectors` | `merge.sources[].role`, `merge.entries[].source`, `path_raw` and `target_raw` of merge entries ([Selected merge plans](#selected-merge-plans)) |
 
 ## `POST /prepare-write`
 
@@ -137,6 +147,11 @@ set. A non-directory parent gives `file_not_dir`.
 
 ### Merge plan
 
+A merge plan has one of two forms. A *matched* plan (below) gives no source
+roles and finds native nodes by comparing entries with the base. A *selected*
+plan gives every source a role and every entry a selector that names the exact
+native node it copies ([Selected merge plans](#selected-merge-plans)).
+
 ```json
 "merge": {"sources": [{"snapshot": "64-hex"}], "entries": [
   {"path": "src/a.go", "kind": "file", "mode": 420, "size": 120, "digest": "restic:<64-hex>"},
@@ -166,6 +181,98 @@ has at least two names with equal size, mode and digest. `mode` holds bits 07777
 
 A conflicted comparison writes the same way: the plan lists current's node for a
 conflicted path, and the pair is written.
+
+### Selected merge plans
+
+Feature `merge-source-selectors`. Every source has a `role`; every entry has a
+`source` selector. A plan is selected when any source has a role; then every
+source needs a role and every entry a selector. A plan without roles may not
+carry a selector. A mixed plan is refused.
+
+```json
+"merge": {
+  "sources": [
+    {"role": "base", "snapshot": "64-hex"},
+    {"role": "current", "snapshot": "64-hex"},
+    {"role": "incoming", "empty": true}
+  ],
+  "entries": [
+    {"path": "src", "kind": "dir", "mode": 493,
+     "source": {"role": "current", "path": "src"}},
+    {"path": "src/a.go", "kind": "file", "mode": 420, "size": 120, "digest": "restic:<64-hex>",
+     "source": {"role": "current", "path": "src/a.go"}},
+    {"path": "x", "kind": "file", "mode": 420, "size": 9, "digest": "restic:<64-hex>", "link_group": "<output label>",
+     "source": {"role": "incoming", "path": "x", "link_group": "<label of x in incoming>"}},
+    {"path": ".forge/state", "kind": "file", "mode": 384, "size": 7, "digest": "restic:<64-hex>",
+     "source": {"role": "current", "path": ".forge/state"}},
+    {"path": "conflict.txt", "kind": "file", "mode": 420, "size": 42, "digest": "<sha256 hex>",
+     "source": {"role": "generated"}},
+    {"path_raw": "cv8=", "kind": "file", "mode": 420, "size": 3, "digest": "restic:<64-hex>",
+     "source": {"role": "current", "path_raw": "cv8="}}
+  ]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `sources[].role` | Lower-case name, 1 to 32 characters of `a-z`, `0-9`, `-`, `_`, starting with a letter. Unique in the plan. `generated` is reserved. A source may be `{"empty": true}`; no selector resolves in it. The request `base` has no role and stays the head's parent; it is not a selector source unless it is also listed. |
+| `source.role` | A source role, or `generated`. |
+| `source.path` | The node's path in that source: canonical, relative, as entry paths. Required for a source role, absent for `generated`. It may differ from the entry path. |
+| `source.link_group` | The node's link-group label in that source: SHA-256 of the JSON array of the sorted relative names of its inode in the whole source tree, private names included (`resticrev.groupToken`), empty for a node with one name. Absent for `generated`. |
+| `path_raw`, `source.path_raw`, `target_raw` | Base64 bytes of a path or symlink target that is not valid UTF-8, which a JSON string cannot hold. Only for such bytes, and then the string form is empty or absent. |
+
+A selector is refused (400 `invalid_request`, nothing written) when its role is
+not a source, when the source has no node at the path (a symbolic link as a
+path component does not resolve), or when the node differs from the entry:
+another kind; for a file another size or content token (`digest` must be the
+node's `restic:` token; a plain SHA-256 does not select a native file); for a
+symbolic link another target; a mode that is neither the node's bits 07777 nor
+its bits 0777; or another link-group label than `source.link_group`.
+
+A native entry is the selected node with every field: inode, device ID, link
+count, mtime, atime, ctime, owner IDs and names, mode, xattrs, generic
+attributes and content. The request `owner` and `time` do not apply to it. The
+only exceptions are these rules, applied in order:
+
+1. Link groups. An output group (entries with one `link_group`) whose names
+   select every name of one inode of one source, each once, keeps that inode.
+   Any other output group (a split, a join of names from several sources or
+   inodes, a group with generated names) is rebuilt: one new node for all its
+   names, copied from the node of its first name by path, with a new inode,
+   `links` = the group size, the template's device ID (the base's device ID
+   when the template has none) and ctime `time`.
+2. A native file with several links that the plan gives no `link_group` is
+   left with one name: `links` 1, device ID 0 (as `backup` stores single-link
+   files) and ctime `time`. It keeps its inode.
+3. Inode numbers. Entries are visited in path order. A native node whose inode
+   number an earlier node of another inode already holds gets a new number;
+   the names of one output group share one number. New numbers count up from
+   the largest inode of the base tree and of all selected nodes. Restic's
+   restorer joins hard links by device and inode
+   (`internal/restorer/hardlinks_index.go`), and the head check below refuses
+   a head whose names of one device and inode do not match their link count,
+   so two sources' inode numbers may not collide.
+4. Directories. A directory keeps the subtree ID of its selected source
+   directory when its names are exactly that directory's names, each an
+   unchanged copy of the node at the same source path. Otherwise its tree is
+   encoded again, and when its names differ from the selected directory's
+   names its mtime, atime and ctime become `time`. The root has no entry; it
+   keeps the root tree of the role of its first name under the same rule.
+
+A generated entry is built from the plan: a new inode, mtime and ctime `time`,
+the entry's mode, the request owner, and content from a request content item
+(plain SHA-256 digest) or a `restic:` token found in a source.
+
+Private names. A selected plan is the lossless head: it may contain names that
+match `--public-exclude` (the caller's private names, such as `.forge` or the
+trash directory), and they are written into the head. The public twin leaves
+them out as for edits; when a hard-link group has a public and an excluded
+name, the twin is not written and `incomplete_link_groups` names the group
+(see the answer). A matched plan still refuses excluded names.
+
+`/verify-write` replays a selected plan with the same rules; every number
+and time above follows from the request and the source trees, so the replay
+produces the same trees.
 
 ### Answer
 
@@ -212,7 +319,7 @@ these are not a success and are tagged for discovery.
 | Status | Body | Meaning |
 |---|---|---|
 | 409 | `{"code","edit","current_etag"?}` | A precondition did not hold; nothing was written. Codes: `file_stale` (with `current_etag` when the node exists), `file_not_found`, `file_exists`, `file_not_dir`, `content_refused`. `edit` is the index of the refused edit. |
-| 400 | `{"code":"invalid_request","detail"}` or `unsupported_version` | Malformed request; nothing was written. Includes merge entries whose content no source holds. |
+| 400 | `{"code":"invalid_request","detail"}` or `unsupported_version` | Malformed request; nothing was written. Includes merge entries whose content no source holds and selectors that do not name a matching node. |
 | 404 | `{"code":"snapshot_not_found"}` | A base or source snapshot does not exist. |
 | 503 | `repository_locked`, `repository_unavailable`, `draining` | Retry later. |
 | 500 | `{"code":"write_failed"}` | The write failed, for example a tree that cannot be re-encoded without loss (a node field unknown to this restic version). The process stays usable. |

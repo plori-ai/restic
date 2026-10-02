@@ -171,7 +171,14 @@ type versionResponse struct {
 	Endpoints []string `json:"endpoints"`
 	TrashDir  string   `json:"trash_dir,omitempty"`
 	Excludes  []string `json:"public_excludes"`
+	// Features lists additions to protocol version 1 that a caller may use
+	// only when the server names them (doc/plori-tree-write.md, Versioning).
+	Features []string `json:"features"`
 }
+
+// featureMergeSelectors is the selected merge plan: source roles, entry
+// selectors, raw byte paths and private names in the head.
+const featureMergeSelectors = "merge-source-selectors"
 
 func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
@@ -183,7 +190,7 @@ func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, versionResponse{Protocol: "tree-write", Version: treeWriteVersion, Restic: global.Version,
 			Endpoints: []string{"/version", "/prepare-write", "/tree-write", "/verify-write", "/prepare", "/tree", "/walk", "/file", "/snapshots", "/skeleton", contentReadPath},
-			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...)})
+			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...), Features: []string{featureMergeSelectors}})
 		return
 	case "/prepare-write", "/tree-write", "/verify-write":
 	default:

@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/restic/restic/internal/restic"
 )
@@ -15,8 +16,10 @@ import (
 var errUnsupportedVersion = errors.New("unsupported protocol version")
 
 // treeSource names the exact tree a request starts from: a snapshot (full ID)
-// or the empty tree. Exactly one is set.
+// or the empty tree. Exactly one is set. Role names a merge source that entry
+// selectors refer to; the request base has none.
 type treeSource struct {
+	Role     string `json:"role,omitempty"`
 	Snapshot string `json:"snapshot,omitempty"`
 	Empty    bool   `json:"empty,omitempty"`
 }
@@ -46,20 +49,132 @@ type writeEdit struct {
 }
 
 // mergeEntry is one name of a merge result (the merge manifest of
-// plori-runtime's workspacerev/merge.Entry).
+// plori-runtime's workspacerev/merge.Entry). PathRaw and TargetRaw carry a
+// path or symlink target that is not valid UTF-8, which a JSON string cannot
+// hold; validation moves them into Path and Target.
 type mergeEntry struct {
-	Path      string `json:"path"`
-	Kind      string `json:"kind"`
-	Mode      uint32 `json:"mode"`
-	Size      int64  `json:"size"`
-	Digest    string `json:"digest,omitempty"`
-	Target    string `json:"target,omitempty"`
+	Path      string         `json:"path"`
+	PathRaw   []byte         `json:"path_raw,omitempty"`
+	Kind      string         `json:"kind"`
+	Mode      uint32         `json:"mode"`
+	Size      int64          `json:"size"`
+	Digest    string         `json:"digest,omitempty"`
+	Target    string         `json:"target,omitempty"`
+	TargetRaw []byte         `json:"target_raw,omitempty"`
+	LinkGroup string         `json:"link_group,omitempty"`
+	Source    *mergeSelector `json:"source,omitempty"`
+}
+
+// mergeSelector names the exact native node a merge entry copies: the merge
+// source with Role, the node's path in that source, and the link-group label
+// of that node in that source ("" for a node with one name). Role "generated"
+// has no path and no label: the entry's own metadata and content describe
+// the node.
+type mergeSelector struct {
+	Role      string `json:"role"`
+	Path      string `json:"path,omitempty"`
+	PathRaw   []byte `json:"path_raw,omitempty"`
 	LinkGroup string `json:"link_group,omitempty"`
 }
+
+// roleGenerated marks an entry without a native source.
+const roleGenerated = "generated"
 
 type mergePlan struct {
 	Sources []treeSource `json:"sources,omitempty"`
 	Entries []mergeEntry `json:"entries"`
+}
+
+// selected reports a plan whose sources carry roles: every entry then names
+// its native source with a selector (doc/plori-tree-write.md).
+func (p *mergePlan) selected() bool {
+	for _, src := range p.Sources {
+		if src.Role != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// rawString moves a raw byte form into its string field. The raw form is
+// allowed only for bytes that are not valid UTF-8, and only without the
+// string form, so one name has one encoding.
+func rawString(field string, s *string, raw *[]byte) error {
+	if *raw == nil {
+		return nil
+	}
+	if *s != "" || len(*raw) == 0 || utf8.Valid(*raw) {
+		return invalidf("%s_raw: only for bytes that are not valid UTF-8, without %s", field, field)
+	}
+	*s, *raw = string(*raw), nil
+	return nil
+}
+
+// validate checks the plan shape: source roles, selector presence and the raw
+// byte forms. Entry contents and selector targets are checked against the
+// trees when the plan is written.
+func (p *mergePlan) validate() error {
+	selected := p.selected()
+	roles := map[string]bool{}
+	for i, src := range p.Sources {
+		if err := src.validate("merge.sources"); err != nil {
+			return invalidf("source %d: %v", i, err)
+		}
+		if !selected {
+			continue
+		}
+		if !validRole(src.Role) || src.Role == roleGenerated || roles[src.Role] {
+			return invalidf("source %d: role %q", i, src.Role)
+		}
+		roles[src.Role] = true
+	}
+	for i := range p.Entries {
+		e := &p.Entries[i]
+		if err := rawString("path", &e.Path, &e.PathRaw); err != nil {
+			return err
+		}
+		if err := rawString("target", &e.Target, &e.TargetRaw); err != nil {
+			return err
+		}
+		if (e.Source != nil) != selected {
+			return invalidf("entry %q: a selector is required exactly when the sources carry roles", e.Path)
+		}
+		if e.Source == nil {
+			continue
+		}
+		sel := e.Source
+		if err := rawString("source.path", &sel.Path, &sel.PathRaw); err != nil {
+			return err
+		}
+		if sel.Role == roleGenerated {
+			if sel.Path != "" || sel.LinkGroup != "" {
+				return invalidf("entry %q: a generated entry has no source path or link group", e.Path)
+			}
+			continue
+		}
+		if !roles[sel.Role] {
+			return invalidf("entry %q: source role %q is not a merge source", e.Path, sel.Role)
+		}
+		if err := checkPath(sel.Path); err != nil {
+			return invalidf("entry %q: source %v", e.Path, err)
+		}
+	}
+	return nil
+}
+
+// validRole accepts a lower-case role name of up to 32 characters.
+func validRole(role string) bool {
+	if role == "" || len(role) > 32 {
+		return false
+	}
+	for i, c := range role {
+		letter := c >= 'a' && c <= 'z'
+		other := c >= '0' && c <= '9' || c == '-' || c == '_'
+		if !letter && (i == 0 || !other) {
+			return false
+		}
+	}
+	return true
 }
 
 // writeContent is one content item of a request. Data is inline (base64 in
@@ -124,6 +239,9 @@ func (r *treeWriteRequest) validate(cfg serveWriteConfig, inline bool) error {
 	if err := r.Base.validate("base"); err != nil {
 		return err
 	}
+	if r.Base.Role != "" {
+		return invalidf("base: a role names only a merge source")
+	}
 	now, err := time.Parse(time.RFC3339Nano, r.Time)
 	if err != nil || now.IsZero() {
 		return invalidf("time %q", r.Time)
@@ -176,12 +294,7 @@ func (r *treeWriteRequest) validate(cfg serveWriteConfig, inline bool) error {
 		return invalidf("exactly one of edits and merge")
 	}
 	if r.Merge != nil {
-		for i, src := range r.Merge.Sources {
-			if err := src.validate("merge.sources"); err != nil {
-				return invalidf("source %d: %v", i, err)
-			}
-		}
-		return nil
+		return r.Merge.validate()
 	}
 	if len(r.Edits) > maxEdits {
 		return invalidf("more than %d edits", maxEdits)
