@@ -562,3 +562,21 @@ func TestServeWriteLockPerRequest(t *testing.T) {
 	rtest.OK(t, f.repo.List(context.TODO(), restic.LockFile, func(restic.ID, int64) error { locks++; return nil }))
 	rtest.Equals(t, 0, locks)
 }
+
+// A write from a local path stores the same blobs as the same bytes inline.
+func TestServeWriteSourcePath(t *testing.T) {
+	f := newSWFixture(t)
+	base := f.backup(nil, false)
+	payload := string(rtest.Random(23, 6<<20))
+	src := filepath.Join(t.TempDir(), "upload")
+	rtest.OK(t, os.WriteFile(src, []byte(payload), 0o600))
+	fromPath := f.edit(base, writeEdit{Op: "write", Path: "a/from-path", Source: src})
+	inline := f.edit(base, writeEdit{Op: "write", Path: "a/from-path", Data: []byte(payload)})
+	a, b := f.flatten(fromPath.Head.Snapshot)["a/from-path"], f.flatten(inline.Head.Snapshot)["a/from-path"]
+	rtest.Equals(t, uint64(len(payload)), a.Size)
+	rtest.Assert(t, len(a.Content) > 1, "expected several chunks, got %d", len(a.Content))
+	rtest.Equals(t, b.Content, a.Content)
+	code, _, _ := f.post("/edit", writeRequest{Base: base.String(), OpID: "o", Edits: []writeEdit{{Op: "write", Path: "a/y", Source: src, Data: []byte("x")}}})
+	rtest.Equals(t, http.StatusBadRequest, code)
+	checker.TestCheckRepo(t, f.repo)
+}
