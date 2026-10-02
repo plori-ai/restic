@@ -516,8 +516,8 @@ func TestServeWriteEmptyTrash(t *testing.T) {
 	checker.TestCheckRepo(t, f.repo)
 }
 
-// An empty base, a private-only head with an empty twin, and a write that
-// leaves an empty tree.
+// An empty base, a private-only head with an empty twin, an empty merge
+// result, and a write that leaves an empty tree.
 func TestServeWriteEmptyTrees(t *testing.T) {
 	f := newSWFixture(t)
 	resp := f.edit(restic.ID{}, wr(".forge/state", "private"))
@@ -529,6 +529,12 @@ func TestServeWriteEmptyTrees(t *testing.T) {
 
 	resp = f.edit(restic.ID{}, ed(writeEdit{Op: "mkdir"}))
 	rtest.Assert(t, resp.Head.Empty && resp.Public != nil && resp.Public.Empty && resp.Head.Snapshot == "", "empty result: %+v", resp)
+
+	// A merge plan without entries writes the empty tree.
+	merged := f.request(mustID(t, f.edit(restic.ID{}, wr("y", "y")).Head.Snapshot))
+	merged.Edits, merged.Merge = nil, &mergePlan{}
+	resp = f.write(merged)
+	rtest.Assert(t, resp.Head.Empty && resp.Public != nil && resp.Public.Empty, "empty merge: %+v", resp)
 
 	pub := f.edit(restic.ID{}, wr("x", "public"))
 	head := mustID(t, pub.Head.Snapshot)

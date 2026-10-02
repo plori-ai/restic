@@ -20,7 +20,7 @@ const mergeMaxEntries = 1000000
 // validate): canonical relative paths, no public-excluded segment, a directory
 // parent for every entry, and consistent link groups of at least two names.
 func (s *serveWriteHandler) validateEntries(entries []mergeEntry) error {
-	if len(entries) == 0 || len(entries) > mergeMaxEntries {
+	if len(entries) > mergeMaxEntries {
 		return invalidf("entry count %d", len(entries))
 	}
 	byPath := map[string]*mergeEntry{}
