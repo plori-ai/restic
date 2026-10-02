@@ -1,0 +1,13 @@
+[21:31:03] minio prefix proto-tree-write/99cd1feb-a57f-44b8-988a-99e7790471ae
+[21:31:11] revisions (public twins): base 35d8f1428a4e0047462e9048120add1c01b7b11c1753b308207fe58dd8352c31 current d5e99cf69d06a244ae319d4986aa2b7527e507f5a516878aa48137c0350247d2 incoming dcf19d914af42a59691df1b5eecb7258427d4ac1ecb2ec416a5c750aab87dc84
+    zz_proto_merge_test.go:57: merged 14 entries, 1 generated blobs, 8 changes, 0 conflicts, reference de3c406ce184b21c435c8d0938cdf306d9a672a5c965b47c4f468883764c9a2c
+ok  	github.com/plori/plori-runtime/services/storage-worker/internal/workspacerev/resticrev	2.096s
+[21:31:13] merge + platform materializer reference: 2.391517596 s (includes go test build)
+{"entries":14,"blobs":1,"changes":8,"conflicts":0}
+[21:31:14] merge-write: {"n":20,"first_ms":31.2,"p50_ms":20.0,"p95_ms":25.0,"head":"e517083e7d9255e99fcf6fa27505d041e535f802e9257d202c2f4d15cfaff6a3","public":true}
+[21:31:14] compare tree-write e517083e7d9255e99fcf6fa27505d041e535f802e9257d202c2f4d15cfaff6a3 vs platform reference de3c406ce184b21c435c8d0938cdf306d9a672a5c965b47c4f468883764c9a2c: {"nodes_a":14,"nodes_b":14,"link_groups":1,"differences":0,"inode_collisions_a":0}
+[21:31:16] restore compare: {"entries_a": 14, "entries_b": 14, "link_groups_a": 1, "link_groups_b": 1, "groups_equal": true, "differences": 0, "xattr_files": 0}
+[21:31:17] stock check --read-data: OK
+[21:31:17] done
+{"op":"delete","objects":107,"bytes":97141}
+{"op":"size","objects":0,"bytes":0}

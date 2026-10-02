@@ -1,0 +1,1 @@
+{"entries_a": 14, "entries_b": 14, "link_groups_a": 1, "link_groups_b": 1, "groups_equal": true, "differences": 0, "xattr_files": 0}

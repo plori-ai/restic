@@ -1,0 +1,125 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "e9e91b3aeb796b91387ec1dd4303b307de6282d2a7976b43a414c1b22cb8c74e",
+   "tree": "59afcdac25a17fcd08ba4a782e61fd544d88a5f7173ac78c178adaec8405e851",
+   "entries": 289950,
+   "logical_bytes": 72249200
+  },
+  "public": {
+   "snapshot": "b62f259eda7c09dda2a288cde26dfc5d44acf3ced1acdf0890a9c6f0380f1086",
+   "tree": "ebc8d4b282f39c9d64c8df32693285a75ad30de4e022a7b79b06dedffa8ee7f0",
+   "entries": 289626,
+   "logical_bytes": 72164246
+  },
+  "incomplete_link_groups": null,
+  "timings_ms": {
+   "edit": 6.725,
+   "flush": 19.384,
+   "head_snapshot": 23.326,
+   "load": 0.002,
+   "lock": 205.973,
+   "total": 27.492
+  }
+ },
+ "latency_ms": [
+  236.621,
+  238.886,
+  235.135,
+  233.968,
+  231.911,
+  234.753,
+  239.568,
+  236.518,
+  234.843,
+  234.941
+ ],
+ "max_ms": 239.568,
+ "n": 10,
+ "p50_ms": 235.135,
+ "p95_ms": 239.568,
+ "scenario": "pair",
+ "server_timings_ms": [
+  {
+   "edit": 7.878,
+   "flush": 19.325,
+   "head_snapshot": 23.376,
+   "load": 0.003,
+   "lock": 207.626,
+   "total": 27.305
+  },
+  {
+   "edit": 7.859,
+   "flush": 20.881,
+   "head_snapshot": 24.862,
+   "load": 0.002,
+   "lock": 208.721,
+   "total": 28.788
+  },
+  {
+   "edit": 6.73,
+   "flush": 18.636,
+   "head_snapshot": 22.588,
+   "load": 0.002,
+   "lock": 206.028,
+   "total": 27.619
+  },
+  {
+   "edit": 4.439,
+   "flush": 17.799,
+   "head_snapshot": 22.594,
+   "load": 0.001,
+   "lock": 205.881,
+   "total": 26.658
+  },
+  {
+   "edit": 4.926,
+   "flush": 15.871,
+   "head_snapshot": 20.679,
+   "load": 0.002,
+   "lock": 205.896,
+   "total": 24.501
+  },
+  {
+   "edit": 6.407,
+   "flush": 19.708,
+   "head_snapshot": 23.6,
+   "load": 0.002,
+   "lock": 205.784,
+   "total": 27.61
+  },
+  {
+   "edit": 11.736,
+   "flush": 24.439,
+   "head_snapshot": 28.303,
+   "load": 0.002,
+   "lock": 206.258,
+   "total": 32.356
+  },
+  {
+   "edit": 6.715,
+   "flush": 20.158,
+   "head_snapshot": 24.355,
+   "load": 0.003,
+   "lock": 206.645,
+   "total": 28.334
+  },
+  {
+   "edit": 7.071,
+   "flush": 19.243,
+   "head_snapshot": 23.341,
+   "load": 0.002,
+   "lock": 206.112,
+   "total": 27.328
+  },
+  {
+   "edit": 6.725,
+   "flush": 19.384,
+   "head_snapshot": 23.326,
+   "load": 0.002,
+   "lock": 205.973,
+   "total": 27.492
+  }
+ ]
+}

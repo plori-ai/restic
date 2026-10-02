@@ -1,0 +1,7 @@
+only in A: /merge-new/generated.txt
+differs: /d00000/d00008/d00072/d00584/d04680/f053012.txt
+ A {"name":"f053012.txt","type":"file","mode":384,"size":173,"links":1,"uid":1000,"gid":1000,"inode":0,"device_id":0,"linktarget":"","content":["0275de1ae8a28542d14ed3e589ee4a117e0d17ccca4057d2ba7af6bd2832ff26"],"extended_attributes":null,"generic_attributes":null}
+ B {"name":"f053012.txt","type":"file","mode":420,"size":173,"links":1,"uid":1000,"gid":1000,"inode":0,"device_id":0,"linktarget":"","content":["0275de1ae8a28542d14ed3e589ee4a117e0d17ccca4057d2ba7af6bd2832ff26"],"extended_attributes":null,"generic_attributes":null}
+only in A: /merge-new
+only in B: /d00000/d00008/d00072/d00584/d04680/f004680.txt
+{"nodes_a":289627,"nodes_b":289626,"link_groups":100,"differences":4,"inode_collisions_a":0}

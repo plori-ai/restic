@@ -1,0 +1,15 @@
+d 700 7 . 
+d 755 2 ./assets 
+d 755 2 ./data 
+d 755 2 ./docs 
+d 755 2 ./new 
+d 755 2 ./src 
+f 644 1 ./docs/a.md 
+f 644 1 ./new/file.txt 
+f 644 1 ./notes.txt 
+f 644 1 ./README.md 
+f 644 1 ./src/main.py 
+f 644 2 ./assets/x 
+f 644 2 ./assets/y 
+f 755 1 ./data/blob.bin 
+l 777 1 ./sym src/main.py

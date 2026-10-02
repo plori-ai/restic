@@ -1,0 +1,27 @@
+[21:14:09] minio prefix proto-tree-write/a2eb5720-bbf2-44f7-bd17-2a91e028af55 (credential lengths 24 64)
+[21:14:15] base head d183a56626082a08f7a271434beb548cd99b767ae9b55fb3825bc5132a72360b (2.129614546 s) public 58e351395b4a5349d074025bb6c435ed6473870bce0ca64438aacca71fc18285 (1.793310571 s)
+[21:14:16] prepare cold: {"prepare_ms": 89.3, "server_ms": map[stats:74.681 total:86.841]}
+[21:14:16] prepare again: {"prepare_ms": 0.6, "server_ms": map[stats:0.003 total:0.026]}
+[21:14:17] {"scenario":"overwrite","n":30,"p50_ms":20.7,"p95_ms":25.4,"max_ms":28.9,"head":"d1e94d0674e7de872b9a7e27dade7f15964ca25135e9f544f7797a651c6329b8","public":true,"incomplete":0}
+[21:14:17] repository bytes added by overwrite: 334487 for 30 edits
+[21:14:18] {"scenario":"rename","n":20,"p50_ms":20.7,"p95_ms":23.4,"max_ms":24.0,"head":"0c6dbbb2c6f3100db56eed2b063abf67315a29736a6ea3d0f45ce623e2a80fec","public":true,"incomplete":0}
+[21:14:18] repository bytes added by rename: 329111 for 20 edits
+[21:14:18] {"scenario":"pair","n":10,"p50_ms":21.8,"p95_ms":27.6,"max_ms":27.6,"head":"0b56e7b6808d92897ebc36d315de8564965a4de89757ac1b0f9db146d29c9eb6","public":true,"incomplete":0}
+[21:14:18] repository bytes added by pair: 153869 for 10 edits
+[21:14:18] {"scenario":"trash","n":11,"p50_ms":16.6,"p95_ms":18.1,"max_ms":18.1,"head":"f06122db9f6c3b9216222e62b27916079f166ddac1806c1724f2f6c16338b6fe","public":false,"incomplete":1}
+[21:14:18] repository bytes added by trash: 97748 for 11 edits
+[21:14:20] verifier view head 0b56e7b6808d92897ebc36d315de8564965a4de89757ac1b0f9db146d29c9eb6: {"entries":49950,"logical_bytes":12469786} receipt {"entries":49950,"logical_bytes":12469786}
+[21:14:21] verifier view twin df51e0268c0508490696e335ba33cc611b883f9d89f7a1ea880532701837ec3e: {"entries":49626,"logical_bytes":12385885} receipt {"entries":49626,"logical_bytes":12385885}
+[21:14:23] verifier view head f06122db9f6c3b9216222e62b27916079f166ddac1806c1724f2f6c16338b6fe: {"entries":49950,"logical_bytes":12471154} receipt {"entries":49950,"logical_bytes":12471154}
+[21:14:28] reference heads 359325f2d3fc7aa6bfa63eb242b2e2cd7070062eadbbdd4c165d086ab4c821af (twin 3fe30418d5e61f8028a2903c574fbd497077a28336dd6b8b98a0232d6cf329ba) 4dce0132361430c17fd9a9044672190dc056d9391c37a80547f9057afa3cba6c
+[21:14:30] compare head after pair (tree-write 0b56e7b6808d92897ebc36d315de8564965a4de89757ac1b0f9db146d29c9eb6 vs reference 359325f2d3fc7aa6bfa63eb242b2e2cd7070062eadbbdd4c165d086ab4c821af): {"nodes_a":49950,"nodes_b":49950,"link_groups":120,"differences":0,"inode_collisions_a":0}
+[21:14:31] compare twin after pair (tree-write df51e0268c0508490696e335ba33cc611b883f9d89f7a1ea880532701837ec3e vs reference 3fe30418d5e61f8028a2903c574fbd497077a28336dd6b8b98a0232d6cf329ba): {"nodes_a":49626,"nodes_b":49626,"link_groups":100,"differences":0,"inode_collisions_a":0}
+[21:14:32] compare head after trash (tree-write f06122db9f6c3b9216222e62b27916079f166ddac1806c1724f2f6c16338b6fe vs reference 4dce0132361430c17fd9a9044672190dc056d9391c37a80547f9057afa3cba6c): {"nodes_a":49950,"nodes_b":49950,"link_groups":120,"differences":0,"inode_collisions_a":0}
+[21:14:43] restore compare 0b56e7b6808d92897ebc36d315de8564965a4de89757ac1b0f9db146d29c9eb6 vs 359325f2d3fc7aa6bfa63eb242b2e2cd7070062eadbbdd4c165d086ab4c821af: {"entries_a": 49950, "entries_b": 49950, "link_groups_a": 120, "link_groups_b": 120, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[21:14:54] restore compare df51e0268c0508490696e335ba33cc611b883f9d89f7a1ea880532701837ec3e vs 3fe30418d5e61f8028a2903c574fbd497077a28336dd6b8b98a0232d6cf329ba: {"entries_a": 49626, "entries_b": 49626, "link_groups_a": 100, "link_groups_b": 100, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[21:15:06] restore compare f06122db9f6c3b9216222e62b27916079f166ddac1806c1724f2f6c16338b6fe vs 4dce0132361430c17fd9a9044672190dc056d9391c37a80547f9057afa3cba6c: {"entries_a": 49950, "entries_b": 49950, "link_groups_a": 120, "link_groups_b": 120, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[21:15:08] stock check --read-data: OK (1.027245272 s)
+[21:15:09] snapshots: 136
+[21:15:09] done
+{"op":"delete","objects":341,"bytes":23832214}
+{"op":"size","objects":0,"bytes":0}

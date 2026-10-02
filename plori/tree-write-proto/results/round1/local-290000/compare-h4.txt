@@ -1,0 +1,1 @@
+{"nodes_a":289950,"nodes_b":289950,"link_groups":120,"differences":0,"inode_collisions_a":0}

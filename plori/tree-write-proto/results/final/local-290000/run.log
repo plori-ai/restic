@@ -1,0 +1,24 @@
+[21:08:19] base head 3a22a319a94c25f211cf6657937456116d561160c7e49c42df9fb58e9fb80fea (31.976031194 s) public 80239abfba83c6f25b2d023316e398769f5b3ee2e112d70828f94f00b56c7ee9 (6.755029182 s)
+[21:08:21] prepare cold: {"prepare_ms": 474.5, "server_ms": map[stats:455.684 total:471.589]}
+[21:08:21] prepare again: {"prepare_ms": 0.5, "server_ms": map[stats:0.003 total:0.024]}
+[21:08:22] {"scenario":"overwrite","n":30,"p50_ms":30.8,"p95_ms":78.1,"max_ms":86.7,"head":"8bdadf6508627f484459fc5a62c73d1b62efb0c0bd3e3d90065bd24ce76da8f7","public":true,"incomplete":0}
+[21:08:22] repository bytes added by overwrite: 380374 for 30 edits
+[21:08:23] {"scenario":"rename","n":20,"p50_ms":29.0,"p95_ms":32.9,"max_ms":34.7,"head":"126d7b8659b2f7c63388443dc6d8c1220fae8200d16a9c9a95b869f64b9a65ec","public":true,"incomplete":0}
+[21:08:23] repository bytes added by rename: 379549 for 20 edits
+[21:08:24] {"scenario":"pair","n":10,"p50_ms":32.9,"p95_ms":36.0,"max_ms":36.0,"head":"143bb9a8ce734837024eaeee164c4a556e680ef3de68cb221fe04b88276cca3b","public":true,"incomplete":0}
+[21:08:24] repository bytes added by pair: 226641 for 10 edits
+[21:08:24] {"scenario":"trash","n":11,"p50_ms":23.9,"p95_ms":26.1,"max_ms":26.1,"head":"3d25a9005b0da0553596891e93ddcf61296486ef40c55f828bd627c762f52bcb","public":false,"incomplete":1}
+[21:08:24] repository bytes added by trash: 148271 for 11 edits
+[21:08:30] verifier view head 143bb9a8ce734837024eaeee164c4a556e680ef3de68cb221fe04b88276cca3b: {"entries":289950,"logical_bytes":72249200} receipt {"entries":289950,"logical_bytes":72249200}
+[21:08:35] verifier view twin 1ecc09d167eb05d0174343dce599f48e6ba0cea43dce3e1d3080b5a82dd029ad: {"entries":289626,"logical_bytes":72164246} receipt {"entries":289626,"logical_bytes":72164246}
+[21:08:41] verifier view head 3d25a9005b0da0553596891e93ddcf61296486ef40c55f828bd627c762f52bcb: {"entries":289950,"logical_bytes":72250592} receipt {"entries":289950,"logical_bytes":72250592}
+[21:09:06] reference heads 0e3409228f5de907b7571ef8d332464c8224e861761efaae7f44204a6e2841ec (twin 7777fcff2b10208ac35e2b5100f6676cadbfeeaf8dda84e7cdf894538d605be5) 36fba9864ae8ed16595658870cac6db03ea4ec430ccb6a60f72888788a823e14
+[21:09:14] compare head after pair (tree-write 143bb9a8ce734837024eaeee164c4a556e680ef3de68cb221fe04b88276cca3b vs reference 0e3409228f5de907b7571ef8d332464c8224e861761efaae7f44204a6e2841ec): {"nodes_a":289950,"nodes_b":289950,"link_groups":120,"differences":0,"inode_collisions_a":0}
+[21:09:21] compare twin after pair (tree-write 1ecc09d167eb05d0174343dce599f48e6ba0cea43dce3e1d3080b5a82dd029ad vs reference 7777fcff2b10208ac35e2b5100f6676cadbfeeaf8dda84e7cdf894538d605be5): {"nodes_a":289626,"nodes_b":289626,"link_groups":100,"differences":0,"inode_collisions_a":0}
+[21:09:29] compare head after trash (tree-write 3d25a9005b0da0553596891e93ddcf61296486ef40c55f828bd627c762f52bcb vs reference 36fba9864ae8ed16595658870cac6db03ea4ec430ccb6a60f72888788a823e14): {"nodes_a":289950,"nodes_b":289950,"link_groups":120,"differences":0,"inode_collisions_a":0}
+[21:11:22] restore compare 143bb9a8ce734837024eaeee164c4a556e680ef3de68cb221fe04b88276cca3b vs 0e3409228f5de907b7571ef8d332464c8224e861761efaae7f44204a6e2841ec: {"entries_a": 289950, "entries_b": 289950, "link_groups_a": 120, "link_groups_b": 120, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[21:12:36] restore compare 1ecc09d167eb05d0174343dce599f48e6ba0cea43dce3e1d3080b5a82dd029ad vs 7777fcff2b10208ac35e2b5100f6676cadbfeeaf8dda84e7cdf894538d605be5: {"entries_a": 289626, "entries_b": 289626, "link_groups_a": 100, "link_groups_b": 100, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[21:13:50] restore compare 3d25a9005b0da0553596891e93ddcf61296486ef40c55f828bd627c762f52bcb vs 36fba9864ae8ed16595658870cac6db03ea4ec430ccb6a60f72888788a823e14: {"entries_a": 289950, "entries_b": 289950, "link_groups_a": 120, "link_groups_b": 120, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[21:14:00] stock check --read-data: OK (1.761585100 s)
+[21:14:01] snapshots: 136
+[21:14:07] done

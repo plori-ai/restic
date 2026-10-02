@@ -1,0 +1,114 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "143bb9a8ce734837024eaeee164c4a556e680ef3de68cb221fe04b88276cca3b",
+   "tree": "25e06997f60364bc7ef4ad15ed4d511b4c4e4fb6a7f0b3fcd110ed3048e4299f",
+   "entries": 289950,
+   "logical_bytes": 72249200
+  },
+  "public": {
+   "snapshot": "1ecc09d167eb05d0174343dce599f48e6ba0cea43dce3e1d3080b5a82dd029ad",
+   "tree": "5c4326f49ae47ebe53385c2a011c91063a91bc015777d5de1843ef893a25922c",
+   "entries": 289626,
+   "logical_bytes": 72164246
+  },
+  "incomplete_link_groups": null,
+  "timings_ms": {
+   "edit": 6.82,
+   "flush": 21.678,
+   "head_snapshot": 26.729,
+   "load": 0.001,
+   "total": 31.682
+  }
+ },
+ "latency_ms": [
+  29.653,
+  32.648,
+  35.995,
+  30.943,
+  35.857,
+  29.911,
+  33.897,
+  32.943,
+  34.841,
+  31.95
+ ],
+ "max_ms": 35.995,
+ "n": 10,
+ "p50_ms": 32.943,
+ "p95_ms": 35.995,
+ "scenario": "pair",
+ "server_timings_ms": [
+  {
+   "edit": 5.138,
+   "flush": 19.128,
+   "head_snapshot": 24.069,
+   "load": 0.002,
+   "total": 29.147
+  },
+  {
+   "edit": 8.006,
+   "flush": 22.394,
+   "head_snapshot": 27.468,
+   "load": 0.001,
+   "total": 32.346
+  },
+  {
+   "edit": 8.462,
+   "flush": 25.737,
+   "head_snapshot": 30.734,
+   "load": 0.001,
+   "total": 35.702
+  },
+  {
+   "edit": 6.558,
+   "flush": 20.624,
+   "head_snapshot": 25.522,
+   "load": 0.001,
+   "total": 30.639
+  },
+  {
+   "edit": 7.781,
+   "flush": 25.644,
+   "head_snapshot": 30.578,
+   "load": 0.001,
+   "total": 35.492
+  },
+  {
+   "edit": 7.384,
+   "flush": 19.749,
+   "head_snapshot": 24.527,
+   "load": 0.001,
+   "total": 29.641
+  },
+  {
+   "edit": 7.326,
+   "flush": 23.655,
+   "head_snapshot": 28.64,
+   "load": 0.001,
+   "total": 33.63
+  },
+  {
+   "edit": 6.677,
+   "flush": 21.717,
+   "head_snapshot": 26.628,
+   "load": 0.001,
+   "total": 32.684
+  },
+  {
+   "edit": 7.281,
+   "flush": 24.691,
+   "head_snapshot": 29.641,
+   "load": 0.002,
+   "total": 34.578
+  },
+  {
+   "edit": 6.82,
+   "flush": 21.678,
+   "head_snapshot": 26.729,
+   "load": 0.001,
+   "total": 31.682
+  }
+ ]
+}

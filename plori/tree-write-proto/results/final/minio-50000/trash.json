@@ -1,0 +1,119 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "f06122db9f6c3b9216222e62b27916079f166ddac1806c1724f2f6c16338b6fe",
+   "tree": "c50e5404bac39b5aae6e23c58bed9f27b49b0e757e396da3a1ede9f12de9b182",
+   "entries": 49950,
+   "logical_bytes": 12471154
+  },
+  "public": null,
+  "incomplete_link_groups": [
+   "/d00006/d00061/pair001a"
+  ],
+  "timings_ms": {
+   "edit": 2.379,
+   "flush": 11.836,
+   "head_snapshot": 15.838,
+   "load": 0.001,
+   "total": 15.838
+  }
+ },
+ "latency_ms": [
+  15.148,
+  15.42,
+  14.401,
+  16.625,
+  18.136,
+  16.796,
+  16.94,
+  13.762,
+  16.708,
+  17.385,
+  16.021
+ ],
+ "max_ms": 18.136,
+ "n": 11,
+ "p50_ms": 16.625,
+ "p95_ms": 18.136,
+ "scenario": "trash",
+ "server_timings_ms": [
+  {
+   "edit": 2.373,
+   "flush": 10.282,
+   "head_snapshot": 14.709,
+   "load": 0.003,
+   "total": 14.709
+  },
+  {
+   "edit": 3.388,
+   "flush": 12.782,
+   "head_snapshot": 15.129,
+   "load": 0.001,
+   "total": 15.129
+  },
+  {
+   "edit": 2.483,
+   "flush": 11.855,
+   "head_snapshot": 14.18,
+   "load": 0.001,
+   "total": 14.18
+  },
+  {
+   "edit": 2.454,
+   "flush": 13.418,
+   "head_snapshot": 16.402,
+   "load": 0.001,
+   "total": 16.403
+  },
+  {
+   "edit": 5.213,
+   "flush": 15.607,
+   "head_snapshot": 17.888,
+   "load": 0.001,
+   "total": 17.889
+  },
+  {
+   "edit": 2.981,
+   "flush": 13.715,
+   "head_snapshot": 16.558,
+   "load": 0.001,
+   "total": 16.558
+  },
+  {
+   "edit": 3.248,
+   "flush": 13.622,
+   "head_snapshot": 16.637,
+   "load": 0.002,
+   "total": 16.638
+  },
+  {
+   "edit": 2.327,
+   "flush": 10.755,
+   "head_snapshot": 13.555,
+   "load": 0.001,
+   "total": 13.555
+  },
+  {
+   "edit": 3.424,
+   "flush": 12.945,
+   "head_snapshot": 16.474,
+   "load": 0.001,
+   "total": 16.475
+  },
+  {
+   "edit": 3.09,
+   "flush": 13.718,
+   "head_snapshot": 17.158,
+   "load": 0.001,
+   "total": 17.159
+  },
+  {
+   "edit": 2.379,
+   "flush": 11.836,
+   "head_snapshot": 15.838,
+   "load": 0.001,
+   "total": 15.838
+  }
+ ]
+}

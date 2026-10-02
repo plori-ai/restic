@@ -1,0 +1,21 @@
+[20:48:36] base head a8208e79bf09e03fe2fd40bc67638db01600d8282e93c0eaab27b222a8a34ef3 (2.235568072 s) public ca96486b4143d378715540eecce19cdecd353ba56be09921744ba2a40dc0433c (1.783854136 s)
+[20:48:38] prepare cold: {"prepare_ms": 1362.6}
+[20:48:38] prepare again: {"prepare_ms": 0.7}
+[20:48:39] {"scenario":"overwrite","n":30,"p50_ms":31.0,"p95_ms":33.8,"max_ms":43.4,"head":"2d8b7c4278b2e8e9bf3a34d7ad2dcc41718710979e9a040328372d5305f73534","public":true,"incomplete":0}
+[20:48:39] repository bytes added by overwrite: 334947 for 30 edits
+[20:48:40] {"scenario":"rename","n":20,"p50_ms":30.9,"p95_ms":31.9,"max_ms":32.9,"head":"ce2c8b1744e0038a96812c9458dfa1f4053ff9b64249d54189b3e965d3a0f768","public":true,"incomplete":0}
+[20:48:40] repository bytes added by rename: 329946 for 20 edits
+[20:48:40] {"scenario":"pair","n":10,"p50_ms":33.0,"p95_ms":35.7,"max_ms":35.7,"head":"8a5a07ff01c9206f0de01759934b268a3635d024b8b1bf8d2c9614a0321241f4","public":true,"incomplete":0}
+[20:48:40] repository bytes added by pair: 154324 for 10 edits
+[20:48:40] {"scenario":"trash","n":11,"p50_ms":23.8,"p95_ms":26.8,"max_ms":26.8,"head":"b181da40a6d7f8e16f62876b39c14ad489cf6a63f06f3e0297d2895dfc084c3d","public":false,"incomplete":1}
+[20:48:40] repository bytes added by trash: 98065 for 11 edits
+[20:48:46] reference heads bc92027cb148664abd61f3721bb953379ce3bc7599247ef9c88939d37ac1cb1e (twin 36f001d956ab47d07fc1d0a2b6b236d97bfd876fbf1a678c4916be8561ec814c) 2eb0029fe006367257f0d60ef936e812e933021cd91e781ca1930b1f9c92e30c
+[20:48:47] compare head after pair (tree-write 8a5a07ff01c9206f0de01759934b268a3635d024b8b1bf8d2c9614a0321241f4 vs reference bc92027cb148664abd61f3721bb953379ce3bc7599247ef9c88939d37ac1cb1e): {"nodes_a":49950,"nodes_b":49950,"link_groups":120,"differences":0,"inode_collisions_a":0}
+[20:48:48] compare twin after pair (tree-write af8261401d6962aa6e707c4f27b65b0a1dc379f487543e56de2989ceb68501b7 vs reference 36f001d956ab47d07fc1d0a2b6b236d97bfd876fbf1a678c4916be8561ec814c): {"nodes_a":49626,"nodes_b":49626,"link_groups":100,"differences":0,"inode_collisions_a":0}
+[20:48:50] compare head after trash (tree-write b181da40a6d7f8e16f62876b39c14ad489cf6a63f06f3e0297d2895dfc084c3d vs reference 2eb0029fe006367257f0d60ef936e812e933021cd91e781ca1930b1f9c92e30c): {"nodes_a":49950,"nodes_b":49950,"link_groups":120,"differences":0,"inode_collisions_a":0}
+[20:49:01] restore compare 8a5a07ff01c9206f0de01759934b268a3635d024b8b1bf8d2c9614a0321241f4 vs bc92027cb148664abd61f3721bb953379ce3bc7599247ef9c88939d37ac1cb1e: {"entries_a": 49950, "entries_b": 49950, "link_groups_a": 120, "link_groups_b": 120, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[20:49:14] restore compare af8261401d6962aa6e707c4f27b65b0a1dc379f487543e56de2989ceb68501b7 vs 36f001d956ab47d07fc1d0a2b6b236d97bfd876fbf1a678c4916be8561ec814c: {"entries_a": 49626, "entries_b": 49626, "link_groups_a": 100, "link_groups_b": 100, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[20:49:26] restore compare b181da40a6d7f8e16f62876b39c14ad489cf6a63f06f3e0297d2895dfc084c3d vs 2eb0029fe006367257f0d60ef936e812e933021cd91e781ca1930b1f9c92e30c: {"entries_a": 49950, "entries_b": 49950, "link_groups_a": 120, "link_groups_b": 120, "groups_equal": true, "differences": 0, "xattr_files": 50}
+[20:49:29] stock check --read-data: OK (.997771971 s)
+[20:49:29] snapshots: 136
+[20:49:31] done

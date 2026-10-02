@@ -1,0 +1,10 @@
+[20:56:30] revisions (public twins): base 26e1bf00a6af9b37128315a76be2cdefe40f422d8c1654cf83302bdb6c8fc3d6 current b9ab4873230991252d4b7bfe1babcda2b53b96d3d791a4785105c73ff2a883e9 incoming e37a8ca5595f6a7592432602566b439e14909ad352128f8421833b1b8ff731ed
+    zz_proto_merge_test.go:57: merged 14 entries, 1 generated blobs, 8 changes, 0 conflicts, reference f34dd0ca936c4f25f7510ccb498d816e52ecf3ef293e39e98f4fc9d95ee4aa64
+ok  	github.com/plori/plori-runtime/services/storage-worker/internal/workspacerev/resticrev	1.749s
+[20:56:32] merge + platform materializer reference: 2.152514704 s (includes go test build)
+{"entries":14,"blobs":1,"changes":8,"conflicts":0}
+[20:56:33] merge-write: {"n":20,"first_ms":27.3,"p50_ms":17.1,"p95_ms":26.5,"head":"01bad0b005018e3cb85a990b848ff0f501c64a7cb1fa5f92b606cd38ab7c81c3","public":true}
+[20:56:33] compare tree-write 01bad0b005018e3cb85a990b848ff0f501c64a7cb1fa5f92b606cd38ab7c81c3 vs platform reference f34dd0ca936c4f25f7510ccb498d816e52ecf3ef293e39e98f4fc9d95ee4aa64: {"nodes_a":14,"nodes_b":14,"link_groups":1,"differences":0,"inode_collisions_a":0}
+[20:56:34] restore compare: {"entries_a": 14, "entries_b": 14, "link_groups_a": 1, "link_groups_b": 1, "groups_equal": true, "differences": 0, "xattr_files": 0}
+[20:56:35] stock check --read-data: OK
+[20:56:35] done

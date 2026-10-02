@@ -1,0 +1,274 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "f0e9ee384f903c56056309258edef4bf9ff5b5d5799f604452aa16d6aa64cb4e",
+   "tree": "a381054efc7c7dc429a50215cc94b5f24f62efa7516b4514eb9824edcf64971a",
+   "entries": 49950,
+   "logical_bytes": 12468878
+  },
+  "public": {
+   "snapshot": "d1c2ae4cc0a6478c319bcd4ada407dd772465981b742a4e4ef5e52f61d04fbcf",
+   "tree": "66d7251f26df61f2b916739f1668bdb5ef73515a37159a6c7cd3d2da9f441ee0",
+   "entries": 49626,
+   "logical_bytes": 12384977
+  },
+  "incomplete_link_groups": null,
+  "timings_ms": {
+   "edit": 3.691,
+   "flush": 13.721,
+   "head_snapshot": 16.515,
+   "load": 0.001,
+   "total": 19.755
+  }
+ },
+ "latency_ms": [
+  49.916,
+  123.952,
+  66.869,
+  113.62,
+  46.731,
+  30.377,
+  95.662,
+  55.639,
+  41.546,
+  84.725,
+  52.019,
+  31.947,
+  126.045,
+  49.797,
+  32.975,
+  122.944,
+  47.004,
+  32.622,
+  85.107,
+  49.309,
+  31.558,
+  134.671,
+  26.306,
+  25.775,
+  24.027,
+  21.82,
+  24.978,
+  23.906,
+  22.867,
+  19.998
+ ],
+ "max_ms": 134.671,
+ "n": 30,
+ "p50_ms": 47.004,
+ "p95_ms": 126.045,
+ "scenario": "overwrite",
+ "server_timings_ms": [
+  {
+   "edit": 6.343,
+   "flush": 34.607,
+   "head_snapshot": 43.828,
+   "load": 0.002,
+   "total": 49.572
+  },
+  {
+   "edit": 3.924,
+   "flush": 109.716,
+   "head_snapshot": 119.772,
+   "load": 0.001,
+   "total": 123.723
+  },
+  {
+   "edit": 4.382,
+   "flush": 52.907,
+   "head_snapshot": 62.736,
+   "load": 0.001,
+   "total": 66.607
+  },
+  {
+   "edit": 3.09,
+   "flush": 103.012,
+   "head_snapshot": 106.623,
+   "load": 0.001,
+   "total": 113.343
+  },
+  {
+   "edit": 6.423,
+   "flush": 36.092,
+   "head_snapshot": 39.982,
+   "load": 0.001,
+   "total": 46.439
+  },
+  {
+   "edit": 8.637,
+   "flush": 21.896,
+   "head_snapshot": 26.157,
+   "load": 0.001,
+   "total": 30.112
+  },
+  {
+   "edit": 8.988,
+   "flush": 83.021,
+   "head_snapshot": 88.873,
+   "load": 0.001,
+   "total": 95.406
+  },
+  {
+   "edit": 9.299,
+   "flush": 45.392,
+   "head_snapshot": 48.922,
+   "load": 0.001,
+   "total": 55.379
+  },
+  {
+   "edit": 4.964,
+   "flush": 32.373,
+   "head_snapshot": 37.337,
+   "load": 0.001,
+   "total": 41.274
+  },
+  {
+   "edit": 4.71,
+   "flush": 74.047,
+   "head_snapshot": 77.682,
+   "load": 0.001,
+   "total": 84.45
+  },
+  {
+   "edit": 9.052,
+   "flush": 40.982,
+   "head_snapshot": 47.856,
+   "load": 0.001,
+   "total": 51.771
+  },
+  {
+   "edit": 3.955,
+   "flush": 19.734,
+   "head_snapshot": 26.739,
+   "load": 0.001,
+   "total": 31.679
+  },
+  {
+   "edit": 4.761,
+   "flush": 106.91,
+   "head_snapshot": 121.239,
+   "load": 0.001,
+   "total": 125.768
+  },
+  {
+   "edit": 6.249,
+   "flush": 38.928,
+   "head_snapshot": 45.811,
+   "load": 0.001,
+   "total": 49.504
+  },
+  {
+   "edit": 5.633,
+   "flush": 20.65,
+   "head_snapshot": 28.627,
+   "load": 0.001,
+   "total": 32.728
+  },
+  {
+   "edit": 5.06,
+   "flush": 112.63,
+   "head_snapshot": 118.868,
+   "load": 0.001,
+   "total": 122.672
+  },
+  {
+   "edit": 6.194,
+   "flush": 36.638,
+   "head_snapshot": 43.062,
+   "load": 0.001,
+   "total": 46.713
+  },
+  {
+   "edit": 5.577,
+   "flush": 21.4,
+   "head_snapshot": 28.581,
+   "load": 0.001,
+   "total": 32.356
+  },
+  {
+   "edit": 3.418,
+   "flush": 73.902,
+   "head_snapshot": 81,
+   "load": 0.001,
+   "total": 84.843
+  },
+  {
+   "edit": 5.06,
+   "flush": 37.676,
+   "head_snapshot": 44.743,
+   "load": 0.001,
+   "total": 49.049
+  },
+  {
+   "edit": 3.489,
+   "flush": 17.117,
+   "head_snapshot": 27.503,
+   "load": 0.001,
+   "total": 31.293
+  },
+  {
+   "edit": 3.754,
+   "flush": 100.766,
+   "head_snapshot": 104.685,
+   "load": 0.002,
+   "total": 134.39
+  },
+  {
+   "edit": 5.778,
+   "flush": 17.888,
+   "head_snapshot": 21.943,
+   "load": 0.002,
+   "total": 26.039
+  },
+  {
+   "edit": 6.019,
+   "flush": 17.467,
+   "head_snapshot": 21.716,
+   "load": 0.001,
+   "total": 25.488
+  },
+  {
+   "edit": 4.225,
+   "flush": 15.806,
+   "head_snapshot": 19.514,
+   "load": 0.002,
+   "total": 23.756
+  },
+  {
+   "edit": 3.989,
+   "flush": 13.458,
+   "head_snapshot": 17.601,
+   "load": 0.001,
+   "total": 21.588
+  },
+  {
+   "edit": 5.069,
+   "flush": 16.766,
+   "head_snapshot": 20.598,
+   "load": 0.001,
+   "total": 24.739
+  },
+  {
+   "edit": 4.864,
+   "flush": 15.654,
+   "head_snapshot": 19.755,
+   "load": 0.001,
+   "total": 23.653
+  },
+  {
+   "edit": 5.416,
+   "flush": 14.85,
+   "head_snapshot": 18.731,
+   "load": 0.001,
+   "total": 22.626
+  },
+  {
+   "edit": 3.691,
+   "flush": 13.721,
+   "head_snapshot": 16.515,
+   "load": 0.001,
+   "total": 19.755
+  }
+ ]
+}

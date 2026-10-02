@@ -1,0 +1,191 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "07fa1ddf8c05906f79b0cf73c82d66aab269ced62766764bfc5b3baf5cf91d0f",
+   "tree": "b98fc1c107bc13c9ddbc44889dcfb2cd7684accf733b429f8c7d4ccb849fcbda",
+   "entries": 14,
+   "logical_bytes": 4316
+  },
+  "public": {
+   "snapshot": "50c10bf26133bad180954d636e0d12f84915e62db5b141e982fe7e1281feae75",
+   "tree": "b98fc1c107bc13c9ddbc44889dcfb2cd7684accf733b429f8c7d4ccb849fcbda",
+   "entries": 14,
+   "logical_bytes": 4316
+  },
+  "incomplete_link_groups": null,
+  "timings_ms": {
+   "build": 1.468,
+   "flush": 9.863,
+   "head_snapshot": 13.544,
+   "load": 0.032,
+   "total": 16.882
+  }
+ },
+ "latency_ms": [
+  33.002,
+  22.699,
+  22.038,
+  19.065,
+  18.992,
+  18.727,
+  19.901,
+  17.967,
+  21.693,
+  18.035,
+  21.877,
+  18.116,
+  18.782,
+  17.998,
+  21.863,
+  18.852,
+  17.814,
+  19.196,
+  18.908,
+  17.164
+ ],
+ "p50_ms": 18.992,
+ "p95_ms": 22.699,
+ "server_timings_ms": [
+  {
+   "build": 3.603,
+   "flush": 22.349,
+   "head_snapshot": 27.167,
+   "load": 0.27,
+   "total": 32.311
+  },
+  {
+   "build": 1.021,
+   "flush": 13.434,
+   "head_snapshot": 18.477,
+   "load": 0.04,
+   "total": 22.365
+  },
+  {
+   "build": 4.305,
+   "flush": 12.682,
+   "head_snapshot": 16.928,
+   "load": 0.041,
+   "total": 21.826
+  },
+  {
+   "build": 2.6,
+   "flush": 10.416,
+   "head_snapshot": 14.727,
+   "load": 0.035,
+   "total": 18.751
+  },
+  {
+   "build": 2.128,
+   "flush": 10.378,
+   "head_snapshot": 14.292,
+   "load": 0.042,
+   "total": 18.488
+  },
+  {
+   "build": 1.906,
+   "flush": 10.344,
+   "head_snapshot": 14.219,
+   "load": 0.035,
+   "total": 18.422
+  },
+  {
+   "build": 2.355,
+   "flush": 10.712,
+   "head_snapshot": 14.552,
+   "load": 0.022,
+   "total": 19.657
+  },
+  {
+   "build": 1.397,
+   "flush": 9.766,
+   "head_snapshot": 13.572,
+   "load": 0.022,
+   "total": 17.763
+  },
+  {
+   "build": 4.52,
+   "flush": 13.56,
+   "head_snapshot": 17.569,
+   "load": 0.016,
+   "total": 21.489
+  },
+  {
+   "build": 1.569,
+   "flush": 9.72,
+   "head_snapshot": 13.777,
+   "load": 0.042,
+   "total": 17.746
+  },
+  {
+   "build": 5.145,
+   "flush": 13.804,
+   "head_snapshot": 17.588,
+   "load": 0.035,
+   "total": 21.567
+  },
+  {
+   "build": 1.341,
+   "flush": 9.86,
+   "head_snapshot": 13.531,
+   "load": 0.036,
+   "total": 17.772
+  },
+  {
+   "build": 2.28,
+   "flush": 10.49,
+   "head_snapshot": 14.672,
+   "load": 0.032,
+   "total": 18.447
+  },
+  {
+   "build": 1.494,
+   "flush": 9.513,
+   "head_snapshot": 13.732,
+   "load": 0.028,
+   "total": 17.683
+  },
+  {
+   "build": 2.474,
+   "flush": 13.549,
+   "head_snapshot": 17.806,
+   "load": 0.034,
+   "total": 21.59
+  },
+  {
+   "build": 1.379,
+   "flush": 10.671,
+   "head_snapshot": 14.849,
+   "load": 0.051,
+   "total": 18.565
+  },
+  {
+   "build": 2.428,
+   "flush": 10.727,
+   "head_snapshot": 13.537,
+   "load": 0.039,
+   "total": 17.527
+  },
+  {
+   "build": 2.079,
+   "flush": 10.944,
+   "head_snapshot": 14.904,
+   "load": 0.018,
+   "total": 18.961
+  },
+  {
+   "build": 1.878,
+   "flush": 10.66,
+   "head_snapshot": 14.681,
+   "load": 0.019,
+   "total": 18.676
+  },
+  {
+   "build": 1.468,
+   "flush": 9.863,
+   "head_snapshot": 13.544,
+   "load": 0.032,
+   "total": 16.882
+  }
+ ]
+}

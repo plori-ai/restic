@@ -1,0 +1,9 @@
+using temporary cache in /tmp/claude-1000/-home-yuchen-plori-runtime/1b9080db-563c-4bbe-b9a8-02bc64378463/scratchpad/p4/bproto/work-mergebig-290000/cache/restic-check-cache-2747438321
+create exclusive lock for repository
+load indexes
+check all packs
+check snapshots, trees and blobs
+[0:00] 100.00%  22 / 22 snapshots
+read all data
+[0:01] 100.00%  19 / 19 packs
+no errors were found

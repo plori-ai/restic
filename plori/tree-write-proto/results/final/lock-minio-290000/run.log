@@ -1,0 +1,11 @@
+[21:24:21] minio prefix proto-tree-write/a023d108-5f66-4b25-846d-a850bb08e532 (credential lengths 24 64)
+[21:24:50] base head b720a06bb48c4769c9bf4f5812bb422f5d6962e87d0e1fc8ce7791d5df2a708e (16.944488872 s) public a0d3cd72ea4b7d24ab207553621bd0ba648b08166cba90f3f08d72b103159efb (8.694575105 s)
+[21:24:51] prepare cold: {"prepare_ms": 542.0, "server_ms": map[lock:0 stats:521.298 total:539.723]}
+[21:24:58] {"scenario":"overwrite","n":30,"p50_ms":232.9,"p95_ms":238.5,"max_ms":247.1,"head":"01c66be4e95e9d2ed19d126f27335421b2f01001e332c6d80ba3ee2e65b38add","public":true,"incomplete":0}
+[21:25:01] {"scenario":"pair","n":10,"p50_ms":235.1,"p95_ms":239.6,"max_ms":239.6,"head":"e9e91b3aeb796b91387ec1dd4303b307de6282d2a7976b43a414c1b22cb8c74e","public":true,"incomplete":0}
+[21:25:01] lock ms per request: [209.706,207.14,206.326,206.011,206.454,206.194,206.794,206.284,206.228,206.076,207.433,207.397,207.681,206.543,206.239,207.144,206.284,207.307,206.274,205.401,205.424,206.469,205.667,206.19,206.181,206.373,205.232,207.071,205.272,207.097]
+[21:25:01] locks left: 0
+[21:25:03] stock check --read-data: OK
+[21:25:08] done
+{"op":"delete","objects":218,"bytes":132897066}
+{"op":"size","objects":0,"bytes":0}

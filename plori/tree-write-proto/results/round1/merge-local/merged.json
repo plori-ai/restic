@@ -1,0 +1,137 @@
+{
+ "blobs": {
+  "f40b28982e4c54957fb02c19563e2688949036ef053ba4adf42f8732ba4fe873": "bGluZSAxCmxpbmUgMiBjaGFuZ2VkIGJ5IGN1cnJlbnQKbGluZSAzCmxpbmUgNApsaW5lIDUKbGluZSA2CmxpbmUgNwpsaW5lIDgKbGluZSA5CmxpbmUgMTAKbGluZSAxMSBjaGFuZ2VkIGJ5IGluY29taW5nCmxpbmUgMTIK"
+ },
+ "changes": [
+  {
+   "path": "assets/x",
+   "kind": "modify"
+  },
+  {
+   "path": "assets/y",
+   "kind": "modify"
+  },
+  {
+   "path": "data/blob.bin",
+   "kind": "modify"
+  },
+  {
+   "path": "docs/a.md",
+   "kind": "modify"
+  },
+  {
+   "path": "new",
+   "kind": "add"
+  },
+  {
+   "path": "new/file.txt",
+   "kind": "add"
+  },
+  {
+   "path": "src/main.py",
+   "kind": "modify"
+  },
+  {
+   "path": "src/util.py",
+   "kind": "delete"
+  }
+ ],
+ "conflicts": null,
+ "entries": [
+  {
+   "path": "README.md",
+   "kind": "file",
+   "mode": 420,
+   "size": 10,
+   "digest": "restic:34cb8208db590bf7e0fd411055942edfa61e61639cb7fdf514772e48066a3838"
+  },
+  {
+   "path": "assets",
+   "kind": "dir",
+   "mode": 493,
+   "size": 0
+  },
+  {
+   "path": "assets/x",
+   "kind": "file",
+   "mode": 420,
+   "size": 9,
+   "digest": "restic:647a93a9dabc9b270868bf0d733d39565768bcb0eae3421b21394e8d322bb92e",
+   "link_group": "4218de9930d31954f09a2a4fbc5ec47d47d3060c81de246804173762568f77a1"
+  },
+  {
+   "path": "assets/y",
+   "kind": "file",
+   "mode": 420,
+   "size": 9,
+   "digest": "restic:647a93a9dabc9b270868bf0d733d39565768bcb0eae3421b21394e8d322bb92e",
+   "link_group": "4218de9930d31954f09a2a4fbc5ec47d47d3060c81de246804173762568f77a1"
+  },
+  {
+   "path": "data",
+   "kind": "dir",
+   "mode": 493,
+   "size": 0
+  },
+  {
+   "path": "data/blob.bin",
+   "kind": "file",
+   "mode": 493,
+   "size": 4096,
+   "digest": "restic:c53efd204408b972b1b5384cccfca64b965a94c829760d0edfbdbbf28f010246"
+  },
+  {
+   "path": "docs",
+   "kind": "dir",
+   "mode": 493,
+   "size": 0
+  },
+  {
+   "path": "docs/a.md",
+   "kind": "file",
+   "mode": 420,
+   "size": 29,
+   "digest": "restic:cc7493ba362a0b8e324a738043ea122bcab2fa698e49c18d2544bed2e124f246"
+  },
+  {
+   "path": "new",
+   "kind": "dir",
+   "mode": 493,
+   "size": 0
+  },
+  {
+   "path": "new/file.txt",
+   "kind": "file",
+   "mode": 420,
+   "size": 18,
+   "digest": "restic:f4349486166ff627db2950d3142406d4b1fa44226e4b2946d605a0595d441616"
+  },
+  {
+   "path": "notes.txt",
+   "kind": "file",
+   "mode": 420,
+   "size": 19,
+   "digest": "restic:a4d5ccb52e69194147eea8a0f8e85eabcdf7c3d228637b6c5952fd0dafef7503"
+  },
+  {
+   "path": "src",
+   "kind": "dir",
+   "mode": 493,
+   "size": 0
+  },
+  {
+   "path": "src/main.py",
+   "kind": "file",
+   "mode": 420,
+   "size": 126,
+   "digest": "f40b28982e4c54957fb02c19563e2688949036ef053ba4adf42f8732ba4fe873"
+  },
+  {
+   "path": "sym",
+   "kind": "symlink",
+   "mode": 511,
+   "size": 11,
+   "target": "src/main.py"
+  }
+ ]
+}

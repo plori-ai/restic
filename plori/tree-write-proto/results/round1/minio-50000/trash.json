@@ -1,0 +1,119 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "ad62df43a874c49d827d60463173bcee467744317138323c4279a2f39f2314a6",
+   "tree": "0810e5e087cf8dc5cb8dee43dcda9e119a5cc0542b906b3617f485a554b23faa",
+   "entries": 49950,
+   "logical_bytes": 12471154
+  },
+  "public": null,
+  "incomplete_link_groups": [
+   "/d00006/d00061/pair001a"
+  ],
+  "timings_ms": {
+   "edit": 2.184,
+   "flush": 17.167,
+   "head_snapshot": 21.907,
+   "load": 0,
+   "total": 21.908
+  }
+ },
+ "latency_ms": [
+  21.142,
+  23.561,
+  18.013,
+  18.919,
+  18.752,
+  21.203,
+  22.673,
+  21.903,
+  19.095,
+  16.619,
+  22.249
+ ],
+ "max_ms": 23.561,
+ "n": 11,
+ "p50_ms": 21.142,
+ "p95_ms": 23.561,
+ "scenario": "trash",
+ "server_timings_ms": [
+  {
+   "edit": 2.386,
+   "flush": 16.003,
+   "head_snapshot": 20.593,
+   "load": 0.003,
+   "total": 20.593
+  },
+  {
+   "edit": 6.748,
+   "flush": 19.568,
+   "head_snapshot": 23.259,
+   "load": 0.001,
+   "total": 23.259
+  },
+  {
+   "edit": 2.203,
+   "flush": 13.627,
+   "head_snapshot": 17.702,
+   "load": 0.001,
+   "total": 17.702
+  },
+  {
+   "edit": 2.49,
+   "flush": 14.616,
+   "head_snapshot": 18.66,
+   "load": 0.001,
+   "total": 18.661
+  },
+  {
+   "edit": 2.378,
+   "flush": 13.814,
+   "head_snapshot": 18.49,
+   "load": 0.001,
+   "total": 18.491
+  },
+  {
+   "edit": 2.957,
+   "flush": 16.78,
+   "head_snapshot": 20.959,
+   "load": 0.001,
+   "total": 20.959
+  },
+  {
+   "edit": 3.46,
+   "flush": 18.712,
+   "head_snapshot": 22.444,
+   "load": 0.001,
+   "total": 22.444
+  },
+  {
+   "edit": 2.499,
+   "flush": 17.807,
+   "head_snapshot": 21.665,
+   "load": 0.001,
+   "total": 21.665
+  },
+  {
+   "edit": 2.958,
+   "flush": 13.818,
+   "head_snapshot": 18.86,
+   "load": 0.001,
+   "total": 18.86
+  },
+  {
+   "edit": 2.566,
+   "flush": 12.419,
+   "head_snapshot": 16.339,
+   "load": 0.001,
+   "total": 16.339
+  },
+  {
+   "edit": 2.184,
+   "flush": 17.167,
+   "head_snapshot": 21.907,
+   "load": 0,
+   "total": 21.908
+  }
+ ]
+}

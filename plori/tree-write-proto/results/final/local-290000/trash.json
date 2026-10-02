@@ -1,0 +1,119 @@
+{
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "3d25a9005b0da0553596891e93ddcf61296486ef40c55f828bd627c762f52bcb",
+   "tree": "e0dd9612ab2788d32ffe80b457a866a934d0a3f67e92b7bb994a2032f3e1b541",
+   "entries": 289950,
+   "logical_bytes": 72250592
+  },
+  "public": null,
+  "incomplete_link_groups": [
+   "/d00004/d00041/d00340/d02731/d21858/pair001a"
+  ],
+  "timings_ms": {
+   "edit": 4.183,
+   "flush": 20.637,
+   "head_snapshot": 25.581,
+   "load": 0.001,
+   "total": 25.582
+  }
+ },
+ "latency_ms": [
+  22.878,
+  23.909,
+  24.888,
+  23.415,
+  19.32,
+  25.071,
+  26.08,
+  24.709,
+  21.035,
+  23.89,
+  25.96
+ ],
+ "max_ms": 26.08,
+ "n": 11,
+ "p50_ms": 23.909,
+ "p95_ms": 26.08,
+ "scenario": "trash",
+ "server_timings_ms": [
+  {
+   "edit": 4.091,
+   "flush": 17.423,
+   "head_snapshot": 22.387,
+   "load": 0.002,
+   "total": 22.387
+  },
+  {
+   "edit": 4.34,
+   "flush": 16.602,
+   "head_snapshot": 23.611,
+   "load": 0.001,
+   "total": 23.612
+  },
+  {
+   "edit": 3.981,
+   "flush": 19.574,
+   "head_snapshot": 24.623,
+   "load": 0.001,
+   "total": 24.624
+  },
+  {
+   "edit": 4.264,
+   "flush": 19.393,
+   "head_snapshot": 23.169,
+   "load": 0.002,
+   "total": 23.17
+  },
+  {
+   "edit": 3.883,
+   "flush": 14.881,
+   "head_snapshot": 19.074,
+   "load": 0.001,
+   "total": 19.075
+  },
+  {
+   "edit": 6.692,
+   "flush": 19.762,
+   "head_snapshot": 24.812,
+   "load": 0.001,
+   "total": 24.813
+  },
+  {
+   "edit": 3.497,
+   "flush": 19.608,
+   "head_snapshot": 25.807,
+   "load": 0,
+   "total": 25.808
+  },
+  {
+   "edit": 4.053,
+   "flush": 19.422,
+   "head_snapshot": 24.451,
+   "load": 0.001,
+   "total": 24.452
+  },
+  {
+   "edit": 4.013,
+   "flush": 15.674,
+   "head_snapshot": 20.776,
+   "load": 0.001,
+   "total": 20.777
+  },
+  {
+   "edit": 5.1,
+   "flush": 18.524,
+   "head_snapshot": 23.588,
+   "load": 0.002,
+   "total": 23.589
+  },
+  {
+   "edit": 4.183,
+   "flush": 20.637,
+   "head_snapshot": 25.581,
+   "load": 0.001,
+   "total": 25.582
+  }
+ ]
+}

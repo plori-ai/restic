@@ -1,0 +1,156 @@
+{
+ "chmodded": "/d00000/d00008/d00072/d00584/d04680/f053012.txt",
+ "entries": 289627,
+ "last": {
+  "empty": false,
+  "head": {
+   "snapshot": "4a435dd109fff4dc213047ff2a90d0ced3eecf3604aabb93ec1a3d994a34f13b",
+   "tree": "65c3dea238b5f500a2815fc682e2dc296b7513ff36751fb37e1f9c0a543faf3e",
+   "entries": 289627,
+   "logical_bytes": 72039653
+  },
+  "public": {
+   "snapshot": "4bf9bac424c2a01048d8b2d23a2b7eff0e951bdc4ade03be888c233a42890a74",
+   "tree": "65c3dea238b5f500a2815fc682e2dc296b7513ff36751fb37e1f9c0a543faf3e",
+   "entries": 289627,
+   "logical_bytes": 72039653
+  },
+  "incomplete_link_groups": null,
+  "timings_ms": {
+   "build": 1931.785,
+   "flush": 1944.735,
+   "head_snapshot": 1950.675,
+   "load": 957.99,
+   "merge_encode": 973.528,
+   "merge_lookup": 656.264,
+   "merge_nodes": 891.271,
+   "merge_prefetch": 513.976,
+   "total": 1955.66
+  }
+ },
+ "latency_ms": [
+  2202.336,
+  2297.83,
+  2871.986,
+  2553.349,
+  2231.761,
+  2456.041,
+  2832.068,
+  2300.997,
+  2241.474,
+  2363.621
+ ],
+ "removed": "/d00000/d00008/d00072/d00584/d04680/f004680.txt",
+ "server_timings_ms": [
+  {
+   "build": 1763.95,
+   "flush": 1785.427,
+   "head_snapshot": 1792.381,
+   "load": 892,
+   "merge_encode": 871.709,
+   "merge_lookup": 562.949,
+   "merge_nodes": 795.354,
+   "merge_prefetch": 440.55,
+   "total": 1798.451
+  },
+  {
+   "build": 1876.967,
+   "flush": 1901.485,
+   "head_snapshot": 1907.636,
+   "load": 918.759,
+   "merge_encode": 957.83,
+   "merge_lookup": 650.729,
+   "merge_nodes": 873.585,
+   "merge_prefetch": 502.933,
+   "total": 1912.493
+  },
+  {
+   "build": 2441.787,
+   "flush": 2463.277,
+   "head_snapshot": 2468.152,
+   "load": 939.81,
+   "merge_encode": 1501.524,
+   "merge_lookup": 792.53,
+   "merge_nodes": 1290.21,
+   "merge_prefetch": 578.912,
+   "total": 2474.151
+  },
+  {
+   "build": 2103.636,
+   "flush": 2114.3,
+   "head_snapshot": 2118.42,
+   "load": 1022.797,
+   "merge_encode": 1080.571,
+   "merge_lookup": 737.598,
+   "merge_nodes": 984.597,
+   "merge_prefetch": 560.457,
+   "total": 2124.241
+  },
+  {
+   "build": 1819.243,
+   "flush": 1836.545,
+   "head_snapshot": 1842.631,
+   "load": 895.035,
+   "merge_encode": 923.938,
+   "merge_lookup": 626.15,
+   "merge_nodes": 827.567,
+   "merge_prefetch": 487.361,
+   "total": 1848.529
+  },
+  {
+   "build": 2025.849,
+   "flush": 2039.206,
+   "head_snapshot": 2042.467,
+   "load": 942.909,
+   "merge_encode": 1082.662,
+   "merge_lookup": 721.109,
+   "merge_nodes": 989.488,
+   "merge_prefetch": 530.029,
+   "total": 2048.709
+  },
+  {
+   "build": 2365.058,
+   "flush": 2387.071,
+   "head_snapshot": 2392.073,
+   "load": 1017.329,
+   "merge_encode": 1347.222,
+   "merge_lookup": 786.859,
+   "merge_nodes": 1180.599,
+   "merge_prefetch": 530.418,
+   "total": 2397.957
+  },
+  {
+   "build": 1848.346,
+   "flush": 1857.021,
+   "head_snapshot": 1859.229,
+   "load": 968.072,
+   "merge_encode": 880.001,
+   "merge_lookup": 608.484,
+   "merge_nodes": 807.05,
+   "merge_prefetch": 472.193,
+   "total": 1861.595
+  },
+  {
+   "build": 1837.994,
+   "flush": 1849.359,
+   "head_snapshot": 1852.976,
+   "load": 902.095,
+   "merge_encode": 935.624,
+   "merge_lookup": 632.648,
+   "merge_nodes": 851.666,
+   "merge_prefetch": 476.772,
+   "total": 1857.215
+  },
+  {
+   "build": 1931.785,
+   "flush": 1944.735,
+   "head_snapshot": 1950.675,
+   "load": 957.99,
+   "merge_encode": 973.528,
+   "merge_lookup": 656.264,
+   "merge_nodes": 891.271,
+   "merge_prefetch": 513.976,
+   "total": 1955.66
+  }
+ ]
+}
