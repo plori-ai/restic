@@ -14,6 +14,7 @@ import (
 type treeSaver struct {
 	uploader restic.BlobSaverAsync
 	errFn    ErrorFunc
+	metadata *treeMetadata
 
 	ch chan<- saveTreeJob
 }
@@ -82,6 +83,7 @@ func (s *treeSaver) save(ctx context.Context, job *saveTreeJob) (*data.Node, Ite
 
 	builder := data.NewTreeJSONBuilder()
 	var lastNode *data.Node
+	var staged []*data.Node
 
 	for i, fn := range nodes {
 		// fn is a copy, so clear the original value explicitly
@@ -110,6 +112,19 @@ func (s *treeSaver) save(ctx context.Context, job *saveTreeJob) (*data.Node, Ite
 			continue
 		}
 
+		if s.metadata != nil {
+			// No tree is serialized until every hard-link peer has completed.
+			if lastNode != nil && fnr.node.Name <= lastNode.Name {
+				if fnr.node.Equals(*lastNode) {
+					_ = s.errFn(fnr.target, data.ErrTreeNotOrdered)
+					continue
+				}
+				return nil, stats, data.ErrTreeNotOrdered
+			}
+			staged = append(staged, fnr.node)
+			lastNode = fnr.node
+			continue
+		}
 		err := builder.AddNode(fnr.node)
 		if err != nil && errors.Is(err, data.ErrTreeNotOrdered) && lastNode != nil && fnr.node.Equals(*lastNode) {
 			debug.Log("insert %v failed: %v", fnr.node.Name, err)
@@ -122,6 +137,11 @@ func (s *treeSaver) save(ctx context.Context, job *saveTreeJob) (*data.Node, Ite
 			return nil, stats, err
 		}
 		lastNode = fnr.node
+	}
+
+	if s.metadata != nil {
+		s.metadata.stage(job.snPath, staged)
+		return node, stats, nil
 	}
 
 	buf, err := builder.Finalize()

@@ -853,7 +853,9 @@ type SnapshotOptions struct {
 	BackupStart    time.Time
 	Time           time.Time
 	ParentSnapshot *data.Snapshot
-	ProgramVersion string
+	// TreeMetadataParent preserves equivalent stored nodes independently of content detection.
+	TreeMetadataParent *data.Snapshot
+	ProgramVersion     string
 	// SkipIfUnchanged omits the snapshot creation if it is identical to the parent snapshot.
 	SkipIfUnchanged bool
 }
@@ -914,6 +916,14 @@ func (arch *Archiver) Snapshot(ctx context.Context, targets []string, opts Snaps
 		return nil, restic.ID{}, nil, err
 	}
 
+	var metadata *treeMetadata
+	if opts.TreeMetadataParent != nil {
+		metadata, err = newTreeMetadata(ctx, arch.Repo, opts.TreeMetadataParent)
+		if err != nil {
+			return nil, restic.ID{}, nil, err
+		}
+	}
+
 	var rootTreeID restic.ID
 
 	err = arch.Repo.WithBlobUploader(ctx, func(ctx context.Context, uploader restic.BlobSaverWithAsync) error {
@@ -922,6 +932,7 @@ func (arch *Archiver) Snapshot(ctx context.Context, targets []string, opts Snaps
 
 		wg.Go(func() error {
 			arch.runWorkers(wgCtx, wg, uploader)
+			arch.treeSaver.metadata = metadata
 
 			debug.Log("starting snapshot")
 			fn, nodeCount, err := arch.saveTree(wgCtx, "/", atree, arch.loadParentTree(wgCtx, opts.ParentSnapshot), func(_ *data.Node, is ItemStats) {
@@ -944,7 +955,16 @@ func (arch *Archiver) Snapshot(ctx context.Context, targets []string, opts Snaps
 				return errors.New("snapshot is empty")
 			}
 
-			rootTreeID = *fnr.node.Subtree
+			if metadata != nil {
+				var stats ItemStats
+				rootTreeID, stats, err = metadata.finalize(wgCtx, uploader)
+				if err != nil {
+					return err
+				}
+				arch.trackItem("/", nil, nil, stats, time.Since(start))
+			} else {
+				rootTreeID = *fnr.node.Subtree
+			}
 			arch.stopWorkers()
 			return nil
 		})
@@ -962,8 +982,12 @@ func (arch *Archiver) Snapshot(ctx context.Context, targets []string, opts Snaps
 		return nil, restic.ID{}, nil, err
 	}
 
-	if opts.ParentSnapshot != nil && opts.SkipIfUnchanged {
-		ps := opts.ParentSnapshot
+	comparisonParent := opts.ParentSnapshot
+	if opts.TreeMetadataParent != nil {
+		comparisonParent = opts.TreeMetadataParent
+	}
+	if comparisonParent != nil && opts.SkipIfUnchanged {
+		ps := comparisonParent
 		if ps.Tree != nil && rootTreeID.Equal(*ps.Tree) {
 			arch.summary.BackupEnd = time.Now()
 			return nil, restic.ID{}, arch.summary, nil

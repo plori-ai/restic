@@ -112,6 +112,8 @@ type BackupOptions struct {
 	NoScan            bool
 	SkipIfUnchanged   bool
 
+	TreeMetadataParent string
+
 	// LazyfillReuseMapFD (0: none) and LazyfillReuseBinding install the
 	// reuse map of a lazily filled working copy (backup_lazyfill_reuse.go).
 	LazyfillReuseMapFD   int
@@ -123,6 +125,7 @@ type BackupOptions struct {
 
 func (opts *BackupOptions) AddFlags(f *pflag.FlagSet) {
 	f.StringVar(&opts.Parent, "parent", "", "use this parent `snapshot` (default: latest snapshot in the group determined by --group-by and not newer than the timestamp determined by --time)")
+	f.StringVar(&opts.TreeMetadataParent, "tree-metadata-parent", "", "preserve stored metadata from this exact `snapshot` for equivalent nodes and complete hard-link groups")
 	opts.GroupBy = data.SnapshotGroupByOptions{Host: true, Path: true}
 	f.VarP(&opts.GroupBy, "group-by", "g", "`group` snapshots by host, paths and/or tags, separated by comma (disable grouping with '')")
 	f.BoolVarP(&opts.Force, "force", "f", false, `force re-reading the source files/directories (overrides the "parent" flag)`)
@@ -586,6 +589,18 @@ func runBackup(ctx context.Context, opts BackupOptions, gopts global.Options, te
 		}
 	}
 
+	var treeMetadataParent *data.Snapshot
+	if opts.TreeMetadataParent != "" {
+		id, parseErr := restic.ParseID(opts.TreeMetadataParent)
+		if parseErr != nil {
+			return errors.Fatalf("tree-metadata-parent requires an exact snapshot ID: %v", parseErr)
+		}
+		treeMetadataParent, err = data.LoadSnapshot(ctx, repo, id)
+		if err != nil {
+			return errors.Fatalf("load tree metadata parent: %v", err)
+		}
+	}
+
 	if !gopts.JSON {
 		printer.V("load index files")
 	}
@@ -710,14 +725,15 @@ func runBackup(ctx context.Context, opts BackupOptions, gopts global.Options, te
 	}
 
 	snapshotOpts := archiver.SnapshotOptions{
-		Excludes:        opts.Excludes,
-		Tags:            opts.Tags.Flatten(),
-		BackupStart:     backupStart,
-		Time:            timeStamp,
-		Hostname:        opts.Host,
-		ParentSnapshot:  parentSnapshot,
-		ProgramVersion:  "restic " + global.Version,
-		SkipIfUnchanged: opts.SkipIfUnchanged,
+		Excludes:           opts.Excludes,
+		Tags:               opts.Tags.Flatten(),
+		BackupStart:        backupStart,
+		Time:               timeStamp,
+		Hostname:           opts.Host,
+		ParentSnapshot:     parentSnapshot,
+		TreeMetadataParent: treeMetadataParent,
+		ProgramVersion:     "restic " + global.Version,
+		SkipIfUnchanged:    opts.SkipIfUnchanged,
 	}
 
 	if !gopts.JSON {
