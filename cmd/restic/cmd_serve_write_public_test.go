@@ -65,6 +65,7 @@ func TestServeWritePublicTwinBase(t *testing.T) {
 		t.Fatalf("verify failed: %+v", result)
 	}
 	req.PublicTwinOfBase = true
+	f.assertLargestFiles(out.resp)
 	bad := out.resp
 	bad.Head.Snapshot = bad.Public.Snapshot
 	if v := f.verify(req, bad); v.OK {

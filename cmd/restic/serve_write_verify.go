@@ -249,6 +249,12 @@ func (s *serveWriteHandler) verifyRole(ctx context.Context, role string, root re
 	if entries != want.Entries || bytes != want.LogicalBytes {
 		return mismatch("count_mismatch", "%s has %d entries and %d bytes, result %d and %d", role, entries, bytes, want.Entries, want.LogicalBytes)
 	}
+	if want.LargestFileBytes == nil {
+		return mismatch("count_mismatch", "%s result has no largest file size", role)
+	}
+	if *want.LargestFileBytes != st.largest {
+		return mismatch("count_mismatch", "%s largest file is %d bytes, result %d", role, st.largest, *want.LargestFileBytes)
+	}
 	return nil
 }
 

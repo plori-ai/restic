@@ -208,11 +208,12 @@ type editReceipt struct {
 // treeRole is one written tree of a result: the lossless head or its public
 // twin. An empty tree has no snapshot.
 type treeRole struct {
-	Empty        bool   `json:"empty,omitempty"`
-	Snapshot     string `json:"snapshot,omitempty"`
-	Tree         string `json:"tree,omitempty"`
-	Entries      uint64 `json:"entries"`
-	LogicalBytes uint64 `json:"logical_bytes"`
+	Empty            bool    `json:"empty,omitempty"`
+	Snapshot         string  `json:"snapshot,omitempty"`
+	Tree             string  `json:"tree,omitempty"`
+	Entries          uint64  `json:"entries"`
+	LogicalBytes     uint64  `json:"logical_bytes"`
+	LargestFileBytes *uint64 `json:"largest_file_bytes,omitempty"`
 }
 
 type contentReceipt struct {
@@ -300,6 +301,7 @@ func (s *serveWriteHandler) prepareWrite(ctx context.Context, src treeSource) (*
 	}
 	resp.Head = treeRole{Empty: root.IsNull(), Entries: st.entries, LogicalBytes: st.bytes}
 	if !root.IsNull() {
+		resp.Head.LargestFileBytes = &st.largest
 		resp.Head.Tree = root.String()
 		resp.Head.Snapshot = src.Snapshot
 	}
@@ -627,7 +629,7 @@ func (s *serveWriteHandler) snapshots(ctx context.Context, req *treeWriteRequest
 		}
 		s.rememberSnapshot(id, sn)
 	}
-	resp.Head = treeRole{Snapshot: id.String(), Tree: f.root.String(), Entries: f.stats.entries, LogicalBytes: f.stats.bytes}
+	resp.Head = treeRole{Snapshot: id.String(), Tree: f.root.String(), Entries: f.stats.entries, LogicalBytes: f.stats.bytes, LargestFileBytes: &f.stats.largest}
 	resp.TimingsMS["head_snapshot"] = since(start)
 	resp.IncompleteLinkGroups = f.incomplete
 	switch {
@@ -650,7 +652,7 @@ func (s *serveWriteHandler) snapshots(ctx context.Context, req *treeWriteRequest
 			return err
 		}
 		s.rememberSnapshot(pubID, &pub)
-		resp.Public = &treeRole{Snapshot: pubID.String(), Tree: f.public.String(), Entries: f.stats.pubEntries, LogicalBytes: f.stats.pubBytes}
+		resp.Public = &treeRole{Snapshot: pubID.String(), Tree: f.public.String(), Entries: f.stats.pubEntries, LogicalBytes: f.stats.pubBytes, LargestFileBytes: &f.stats.pubLargest}
 	}
 	return nil
 }

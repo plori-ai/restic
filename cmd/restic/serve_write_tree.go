@@ -65,6 +65,7 @@ type linkName struct {
 type treeStats struct {
 	entries, files, bytes          uint64
 	pubEntries, pubFiles, pubBytes uint64
+	largest, pubLargest            uint64
 	maxInode                       uint64
 	device                         uint64
 	linked                         []linkName
@@ -200,9 +201,11 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 		case data.NodeTypeFile:
 			st.files++
 			st.bytes += n.Size
+			st.largest = max(st.largest, n.Size)
 			if !private {
 				st.pubFiles++
 				st.pubBytes += n.Size
+				st.pubLargest = max(st.pubLargest, n.Size)
 			}
 			if n.Links > 1 {
 				st.linked = append(st.linked, linkName{inodeKey{n.DeviceID, n.Inode}, n.Links, n.Name, private})
@@ -219,10 +222,12 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 			st.entries += child.entries
 			st.files += child.files
 			st.bytes += child.bytes
+			st.largest = max(st.largest, child.largest)
 			if !private {
 				st.pubEntries += child.pubEntries
 				st.pubFiles += child.pubFiles
 				st.pubBytes += child.pubBytes
+				st.pubLargest = max(st.pubLargest, child.pubLargest)
 			}
 			st.maxInode = max(st.maxInode, child.maxInode)
 			if child.device != 0 {

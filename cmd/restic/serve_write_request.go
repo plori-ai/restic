@@ -405,8 +405,8 @@ func (v *verifyWriteRequest) validate(cfg serveWriteConfig) error {
 
 func (r *treeRole) validate(field string) error {
 	if r.Empty {
-		if r.Snapshot != "" || r.Tree != "" || r.Entries != 0 || r.LogicalBytes != 0 {
-			return invalidf("%s: an empty role has no snapshot, tree or counts", field)
+		if r.Snapshot != "" || r.Tree != "" || r.Entries != 0 || r.LogicalBytes != 0 || r.LargestFileBytes != nil {
+			return invalidf("%s: an empty role has no snapshot, tree, counts or largest file", field)
 		}
 		return nil
 	}

@@ -185,6 +185,7 @@ func (f *swFixture) write(req treeWriteRequest) treeWriteResponse {
 		f.t.Fatalf("tree-write answered %d: %s", r.code, r.body)
 	}
 	f.verifyOK(req, r.resp)
+	f.assertLargestFiles(r.resp)
 	return r.resp
 }
 
