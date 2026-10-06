@@ -1,6 +1,7 @@
 package archiver
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -161,15 +162,48 @@ func (s *fileSaver) saveFile(ctx context.Context, chnker *chunker.Chunker, snPat
 		return
 	}
 
-	// reuse the chunker
-	chnker.Reset(f, s.pol)
+	// Files below the minimum chunk size always form one chunk. Read them
+	// directly into the upload buffer, avoiding a chunker reset, buffer copy,
+	// and repeated EOF read. The size is only a hint: still read to EOF.
+	// Keep the chunker's validation for an invalid polynomial, even when
+	// chunk boundaries are otherwise unnecessary.
+	degree := s.pol.Deg()
+	smallFile := node.Size < chunker.MinSize && degree >= 8 && degree <= 53
+	if !smallFile {
+		chnker.Reset(f, s.pol)
+	}
 
 	node.Content = []restic.ID{}
 	node.Size = 0
 	var idx int
 	for {
 		buf := s.saveFilePool.Get()
-		chunk, err := chnker.Next(buf.Data)
+		var chunk chunker.Chunk
+		var err error
+		lastChunk := false
+		if smallFile {
+			var n int
+			n, err = io.ReadFull(f, buf.Data[:chunker.MinSize])
+			switch err {
+			case io.EOF, io.ErrUnexpectedEOF:
+				if n > 0 {
+					chunk = chunker.Chunk{Data: buf.Data[:n], Length: uint(n)}
+					err = nil
+					lastChunk = true
+				}
+			case nil:
+				// The file grew or reported a synthetic size. Replay the prefix
+				// through the chunker to preserve its exact content boundaries.
+				chnker.Reset(io.MultiReader(bytes.NewReader(buf.Data[:n]), f), s.pol)
+				prefix := buf
+				buf = s.saveFilePool.Get()
+				chunk, err = chnker.Next(buf.Data)
+				prefix.Release()
+				smallFile = false
+			}
+		} else {
+			chunk, err = chnker.Next(buf.Data)
+		}
 		if err == io.EOF {
 			buf.Release()
 			break
@@ -227,6 +261,9 @@ func (s *fileSaver) saveFile(ctx context.Context, chnker *chunker.Chunker, snPat
 		}
 
 		s.CompleteBlob(uint64(len(chunk.Data)))
+		if lastChunk {
+			break
+		}
 	}
 
 	err = f.Close()
