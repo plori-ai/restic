@@ -4,8 +4,6 @@ package fs
 
 import "os"
 
-// OS-specific replacements of setFlags can set file status flags
-// that improve I/O performance.
-func setFlags(_ *os.File) error {
-	return nil
+func openFile(name string, flag int) (*os.File, error) {
+	return os.OpenFile(name, flag, 0)
 }

@@ -1,8 +1,10 @@
 package fs
 
 import (
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -45,10 +47,14 @@ func TestNoatime(t *testing.T) {
 
 	atime := getAtime()
 
-	err = setFlags(f)
+	reader, err := openFile(f.Name(), os.O_RDONLY)
 	rtest.OK(t, err)
+	defer func() { rtest.OK(t, reader.Close()) }()
+	flags, err := unix.FcntlInt(reader.Fd(), unix.F_GETFL, 0)
+	rtest.OK(t, err)
+	rtest.Assert(t, flags&unix.O_NOATIME != 0, "O_NOATIME was not set")
 
-	_, err = f.Read(make([]byte, 1))
+	_, err = reader.Read(make([]byte, 1))
 	rtest.OK(t, err)
 	rtest.Equals(t, atime, getAtime())
 }
@@ -67,4 +73,36 @@ func supportsNoatime(t *testing.T, f *os.File) bool {
 		typ == unix.EXT3_SUPER_MAGIC ||
 		typ == unix.EXT4_SUPER_MAGIC ||
 		typ == unix.TMPFS_MAGIC
+}
+
+func TestOpenFileNoatimeFallback(t *testing.T) {
+	// /proc files are owned by root and may reject O_NOATIME. Test the real
+	// permission fallback when running as an ordinary user without CAP_FOWNER.
+	name := "/proc/sys/kernel/hostname"
+	f, err := os.OpenFile(name, os.O_RDONLY|unix.O_NOATIME, 0)
+	if err == nil {
+		rtest.OK(t, f.Close())
+		t.Skip("O_NOATIME permitted; fallback requires an unprivileged user")
+	}
+	if !errors.Is(err, unix.EPERM) {
+		t.Skipf("cannot test permission fallback: %v", err)
+	}
+	f, err = openFile(name, os.O_RDONLY)
+	rtest.OK(t, err)
+	defer func() { rtest.OK(t, f.Close()) }()
+	_, err = io.ReadAll(f)
+	rtest.OK(t, err)
+}
+
+func TestOpenFileNoatimeErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	_, err := openFile(path, os.O_RDONLY)
+	rtest.Assert(t, os.IsNotExist(err), "missing file error lost: %v", err)
+	rtest.OK(t, os.WriteFile(path, nil, 0o600))
+	link := path + "-link"
+	rtest.OK(t, os.Symlink(path, link))
+	_, err = openFile(link, os.O_RDONLY|O_NOFOLLOW)
+	rtest.Assert(t, errors.Is(err, unix.ELOOP), "O_NOFOLLOW was not preserved: %v", err)
+	_, err = openFile(path, os.O_RDONLY|O_DIRECTORY)
+	rtest.Assert(t, errors.Is(err, unix.ENOTDIR), "O_DIRECTORY was not preserved: %v", err)
 }

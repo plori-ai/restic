@@ -6,16 +6,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// SetFlags tries to set the O_NOATIME flag on f, which prevents the kernel
-// from updating the atime on a read call.
+// openFile tries O_NOATIME at open time to avoid two fcntl calls per file.
 //
-// The call fails when we're not the owner of the file or root. The caller
-// should ignore the error, which is returned for testing only.
-func setFlags(f *os.File) error {
-	fd := f.Fd()
-	flags, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
-	if err == nil {
-		_, err = unix.FcntlInt(fd, unix.F_SETFL, flags|unix.O_NOATIME)
+// If the flag is unsupported or we're not the owner of the file or root,
+// retry without it, just as the previous best-effort F_SETFL did.
+func openFile(name string, flag int) (*os.File, error) {
+	f, err := os.OpenFile(name, flag|unix.O_NOATIME, 0)
+	if err != nil {
+		return os.OpenFile(name, flag, 0)
 	}
-	return err
+	return f, nil
 }
