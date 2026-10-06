@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/restic/restic/internal/archiver"
 	"github.com/restic/restic/internal/data"
@@ -162,6 +163,40 @@ func TestTreeEqualSerialization(t *testing.T) {
 		// compare serialization of an individual node and the SaveTreeIterator
 		rtest.Equals(t, treeBytes, buf)
 	}
+}
+
+func TestTreeEqualSerializationSpecialNodes(t *testing.T) {
+	id := restic.Hash([]byte("content"))
+	for _, name := range []string{"normal", "<>&\"\\\n\t", "invalid\xff\x00", "\u2028\u2029"} {
+		for _, content := range []restic.IDs{nil, {}, {id, id}} {
+			for _, link := range []string{"", "<>&\"\\\n", "invalid\xff\x00"} {
+				node := &data.Node{
+					Name: name, Type: data.NodeTypeSymlink, Mode: 0o777,
+					ModTime:    time.Date(-1, 1, 1, 0, 0, 0, 0, time.UTC),
+					AccessTime: time.Date(12345, 1, 1, 0, 0, 0, 0, time.UTC),
+					ChangeTime: time.Date(2026, 1, 1, 0, 0, 0, 1, time.FixedZone("offset", 3600)),
+					UID:        1, GID: 2, User: "<>&", Group: "\u2028", Inode: 3,
+					DeviceID: 4, Size: 5, Links: 6, LinkTarget: link, Device: 7,
+					Content: content, Subtree: &id, Error: "<>&\n", Path: "omitted",
+					ExtendedAttributes: []data.ExtendedAttribute{{Name: "<>&", Value: []byte{0, 255}}},
+					GenericAttributes: map[data.GenericAttributeType]json.RawMessage{
+						"test.attr": json.RawMessage(` { "text": "<>&", "number": 1 } `),
+					},
+				}
+				want, err := json.Marshal(Tree{Nodes: []*data.Node{node}})
+				rtest.OK(t, err)
+				builder := data.NewTreeJSONBuilder()
+				rtest.OK(t, builder.AddNode(node))
+				got, err := builder.Finalize()
+				rtest.OK(t, err)
+				rtest.Equals(t, append(want, '\n'), got)
+			}
+		}
+	}
+	// Malformed raw attributes must still fail serialization.
+	builder := data.NewTreeJSONBuilder()
+	err := builder.AddNode(&data.Node{Name: "invalid", GenericAttributes: map[data.GenericAttributeType]json.RawMessage{"test": json.RawMessage(`{`)}})
+	rtest.Assert(t, err != nil, "invalid raw JSON accepted")
 }
 
 func TestTreeLoadSaveCycle(t *testing.T) {

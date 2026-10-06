@@ -264,7 +264,9 @@ func (builder *TreeJSONBuilder) AddNode(node *Node) error {
 	}
 	builder.lastName = node.Name
 
-	val, err := json.Marshal(node)
+	// MarshalJSON already returns compact, HTML-escaped JSON. Calling
+	// json.Marshal again would validate and copy that encoding for every node.
+	val, err := node.MarshalJSON()
 	if err != nil {
 		return err
 	}
