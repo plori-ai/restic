@@ -69,6 +69,8 @@ type treeStats struct {
 	maxInode                       uint64
 	device                         uint64
 	linked                         []linkName
+	workspaceManifest              bool
+	height                         int
 }
 
 func (s *serveWriteHandler) excluded(name string) bool {
@@ -144,17 +146,25 @@ func (s *serveWriteHandler) statsOf(ctx context.Context, id restic.ID) (*treeSta
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	nodes, err := s.loadNodes(ctx, id, false)
+	nodes, err := s.loadStatNodes(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return s.remember(ctx, id, nodes)
+	return s.rememberStats(ctx, id, nodes)
 }
 
 // remember computes and records the statistics of a tree. Subtrees missing
 // from the memo are walked in parallel while a worker slot is free, else on
 // the calling goroutine, so a first walk of a large tree uses several cores.
 func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []*data.Node) (*treeStats, error) {
+	stats := make([]statNode, len(nodes))
+	for i, n := range nodes {
+		stats[i] = statNode{Name: n.Name, Type: n.Type, Inode: n.Inode, DeviceID: n.DeviceID, Size: n.Size, Links: n.Links, Content: n.Content, Subtree: n.Subtree, Error: n.Error}
+	}
+	return s.rememberStats(ctx, id, stats)
+}
+
+func (s *serveWriteHandler) rememberStats(ctx context.Context, id restic.ID, nodes []statNode) (*treeStats, error) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var walkErr error
@@ -184,8 +194,14 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 	if walkErr != nil {
 		return nil, walkErr
 	}
-	st := &treeStats{}
+	st := &treeStats{workspaceManifest: true}
+	names := make(map[string]bool, len(nodes))
 	for _, n := range nodes {
+		if checkName(n.Name) != nil || names[n.Name] || n.Error != "" || n.Size > uint64(1<<63-1) {
+			st.workspaceManifest = false
+		}
+		names[n.Name] = true
+		st.height = max(st.height, 1)
 		private := s.excluded(n.Name)
 		st.entries++
 		if !private {
@@ -193,7 +209,7 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 		}
 		st.maxInode = max(st.maxInode, n.Inode)
 		if s.verifier {
-			if err := s.indexed(n); err != nil {
+			if err := s.indexed(&data.Node{Type: n.Type, Size: n.Size, Content: n.Content, Subtree: n.Subtree, Name: n.Name}); err != nil {
 				return nil, err
 			}
 		}
@@ -219,6 +235,8 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 			if err != nil {
 				return nil, err
 			}
+			st.workspaceManifest = st.workspaceManifest && child.workspaceManifest
+			st.height = max(st.height, child.height+1)
 			st.entries += child.entries
 			st.files += child.files
 			st.bytes += child.bytes
@@ -236,8 +254,12 @@ func (s *serveWriteHandler) remember(ctx context.Context, id restic.ID, nodes []
 			for _, l := range child.linked {
 				st.linked = append(st.linked, linkName{l.key, l.links, n.Name + "/" + l.rel, l.private || private})
 			}
+		case data.NodeTypeSymlink:
+		default:
+			st.workspaceManifest = false
 		}
 	}
+	st.workspaceManifest = st.workspaceManifest && st.height <= 128
 	s.statsMu.Lock()
 	defer s.statsMu.Unlock()
 	if len(s.stats) >= serveWriteStatsLimit {

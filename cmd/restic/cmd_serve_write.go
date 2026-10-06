@@ -74,9 +74,8 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 				if err != nil {
 					return nil, err
 				}
-				if !verifier {
-					err = repo.LoadIndex(ctx, printer)
-				}
+				// The first gated write refreshes its own index. Read endpoints
+				// prepare it before loading blobs; inventory needs no index.
 				return repo, err
 			}
 			srv, err := newServeWriteServer(ctx, open, cfg)
@@ -190,7 +189,7 @@ func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, versionResponse{Protocol: "tree-write", Version: treeWriteVersion, Restic: global.Version,
 			Endpoints: []string{"/version", "/prepare-write", "/tree-write", "/verify-write", "/prepare", "/tree", "/walk", "/file", "/snapshots", "/skeleton", contentReadPath},
-			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...), Features: []string{featureMergeSelectors, "public-twin-of-base"}})
+			TrashDir:  s.cfg.trashDir, Excludes: append([]string{}, s.cfg.excludes...), Features: []string{featureMergeSelectors, "public-twin-of-base", "workspace-head-manifest"}})
 		return
 	case "/prepare-write", "/tree-write", "/verify-write":
 	default:
@@ -271,7 +270,7 @@ func (s *serveWriteServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // treeWrite runs one write under its own shared lock. A process that holds no
 // lock while idle can see packs a prune removed since the last request, so the
 // index is refreshed under the lock before anything is looked up.
-func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest) (*treeWriteResponse, error) {
+func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest) (resp *treeWriteResponse, err error) {
 	if s.broken {
 		repo, err := s.open(ctx, false)
 		if err != nil {
@@ -281,6 +280,16 @@ func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest)
 		s.w.reset(repo)
 		s.broken = false
 	}
+	// The verifier reads through its own handle while the writer acquires its
+	// lock and works. A later verify request still refreshes its index, drops
+	// statistics if an index disappeared, and replays the exact result.
+	join := s.prefetchTwinHead(ctx, req)
+	defer func() {
+		elapsed := join()
+		if resp != nil {
+			resp.TimingsMS["head_prefetch"] = float64(elapsed) / float64(time.Millisecond)
+		}
+	}()
 	lockStart := time.Now()
 	unlock, lockCtx, err := s.lockRepo(ctx, s.w.repo)
 	if err != nil {
@@ -301,7 +310,7 @@ func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest)
 	if err = s.w.refreshIndex(lockCtx, marks); err != nil {
 		return nil, err
 	}
-	resp, err := s.w.write(lockCtx, req)
+	resp, err = s.w.write(lockCtx, req)
 	if err != nil {
 		var uploadErr *uploadError
 		if errors.As(err, &uploadErr) {
@@ -317,6 +326,30 @@ func (s *serveWriteServer) treeWrite(ctx context.Context, req *treeWriteRequest)
 		resp.TimingsMS[k] = v
 	}
 	return resp, nil
+}
+
+// prefetchTwinHead is speculative read-only work. Its errors do not certify a
+// result: verify-write performs the required fresh index and snapshot checks.
+// The caller holds the request gate and must join before releasing that gate.
+func (s *serveWriteServer) prefetchTwinHead(ctx context.Context, req *treeWriteRequest) func() time.Duration {
+	if !req.PublicTwinOfBase || req.Base.Empty {
+		return func() time.Duration { return 0 }
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		defer func() { done <- time.Since(start) }()
+		s.v.resetCall()
+		if s.v.refreshIndex(ctx, map[string]float64{}) != nil {
+			return
+		}
+		_, root, err := s.v.base(ctx, req.Base)
+		if err == nil {
+			_, _ = s.v.statsOf(ctx, root)
+		}
+	}()
+	return func() time.Duration { cancel(); return <-done }
 }
 
 // decodeStrict decodes exactly one JSON value and refuses unknown fields.

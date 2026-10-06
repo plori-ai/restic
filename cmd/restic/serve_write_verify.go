@@ -30,11 +30,12 @@ func mismatch(code, format string, args ...any) error {
 }
 
 type verifyWriteResponse struct {
-	Version   int                `json:"version"`
-	OK        bool               `json:"ok"`
-	Code      string             `json:"code,omitempty"`
-	Detail    string             `json:"detail,omitempty"`
-	TimingsMS map[string]float64 `json:"timings_ms"`
+	Version               int                `json:"version"`
+	OK                    bool               `json:"ok"`
+	Code                  string             `json:"code,omitempty"`
+	Detail                string             `json:"detail,omitempty"`
+	TimingsMS             map[string]float64 `json:"timings_ms"`
+	HeadManifestValidated bool               `json:"head_manifest_validated"`
 }
 
 // indexed requires that the blobs a node references are in the verifier's
@@ -100,9 +101,35 @@ func (s *serveWriteHandler) verifyWrite(ctx context.Context, v *verifyWriteReque
 		return nil, &writeFailureError{status: http.StatusServiceUnavailable, code: "verify_unavailable"}
 	default:
 		resp.OK = true
+		resp.HeadManifestValidated = s.workspaceHeadManifest(v.Result.Head)
 	}
 	resp.TimingsMS["total"] = since(start)
 	return resp, nil
+}
+
+// workspaceHeadManifest certifies the complete portable-reader contract from
+// this independent verifier's own authenticated tree statistics. The writer's
+// memory and caches are never a source for this receipt.
+func (s *serveWriteHandler) workspaceHeadManifest(head treeRole) bool {
+	if head.Empty {
+		return true
+	}
+	root, err := restic.ParseID(head.Tree)
+	if err != nil {
+		return false
+	}
+	st, ok := s.cachedStats(root)
+	if !ok || !st.workspaceManifest {
+		return false
+	}
+	for _, group := range st.linkGroups() {
+		for _, name := range group {
+			if name.links != uint64(len(group)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *serveWriteHandler) verify(ctx context.Context, req *treeWriteRequest, res *treeWriteResponse, marks map[string]float64) error {

@@ -61,7 +61,7 @@ func TestServeWritePublicTwinBase(t *testing.T) {
 	}
 	var result verifyWriteResponse
 	_ = json.Unmarshal([]byte(v.body), &result)
-	if !result.OK {
+	if !result.OK || !result.HeadManifestValidated {
 		t.Fatalf("verify failed: %+v", result)
 	}
 	req.PublicTwinOfBase = true

@@ -48,9 +48,8 @@ func newServeReadCommand(gopts *global.Options) *cobra.Command {
 				return err
 			}
 			defer unlock()
-			if err = repo.LoadIndex(ctx, printer); err != nil {
-				return err
-			}
+			// Inventory does not need a blob index. prepare and withIndexRetry
+			// load the index before an exact tree or content read.
 			h := newServeReadHandler(repo)
 			h.content = newContentReader(reads)
 			if err := serveReadListen(ctx, socket, h); err != nil {

@@ -312,3 +312,40 @@ func TestServeWriteVerifierStatisticsFollowTheIndex(t *testing.T) {
 	v := f.verify(req, resp)
 	rtest.Assert(t, !v.OK && v.Code == "blob_missing", "want blob_missing, got ok=%v %s: %s", v.OK, v.Code, v.Detail)
 }
+
+// The speculative scan is the verifier's own read set, and cannot certify a
+// result after maintenance removes an indexed data blob.
+func TestServeWritePublicTwinPrefetchFollowsIndex(t *testing.T) {
+	f := newSWFixture(t)
+	rtest.OK(t, os.Remove(filepath.Join(f.dir, ".plori-trash/old")))
+	base := f.backup(nil, false)
+	req := f.request(base)
+	req.PublicTwinOfBase = true
+	out := f.post("/tree-write", req)
+	rtest.Assert(t, out.code == http.StatusOK, "write failed: %d %s", out.code, out.body)
+	rtest.Assert(t, len(f.srv.v.stats) > 0, "prefetch kept no independent statistics")
+	f.verifyOK(req, out.resp)
+	rtest.OK(t, f.repo.LoadIndex(context.TODO(), nil))
+	deep := f.flatten(base.String())["c/d/e/deep"]
+	for _, pb := range f.repo.LookupBlob(restic.DataBlob, deep.Content[0]) {
+		rtest.OK(t, f.be.Remove(context.TODO(), backend.Handle{Type: backend.PackFile, Name: pb.PackID.String()}))
+	}
+	rtest.OK(t, repository.RepairIndex(context.TODO(), f.repo, repository.RepairIndexOptions{}, &progress.NoopPrinter{}))
+	v := f.verify(req, out.resp)
+	rtest.Assert(t, !v.OK && !v.HeadManifestValidated && v.Code == "blob_missing", "prefetch certified removed data: %+v", v)
+}
+
+func TestServeWritePublicTwinPrefetchCancellationJoins(t *testing.T) {
+	f := newSWFixture(t)
+	base := f.backup(nil, false)
+	req := f.request(base)
+	req.PublicTwinOfBase = true
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	join := f.srv.prefetchTwinHead(ctx, &req)
+	_ = join()
+	// Reading these non-concurrent maps is safe only after the speculative
+	// goroutine has returned. The race test also checks that join contract.
+	rtest.Assert(t, len(f.srv.v.stats) == 0 && len(f.srv.v.snapshotsSeen) == 0, "cancelled scan published state")
+	rtest.Assert(t, len(f.srv.w.stats) == 0, "prefetch borrowed the writer's statistics")
+}
