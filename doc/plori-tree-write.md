@@ -37,13 +37,18 @@ credential or a host path: the process configuration does.
 
 - The process holds **no repository lock while idle**. Reads (`/tree`, `/walk`,
   `/file`, `/snapshots`, `/prepare`, `/prepare-write`) take no lock, as with
-  `serve-read --no-lock`. `--no-lock` itself is refused.
-- Each `/tree-write` takes upstream's shared (append) lock, as `restic backup`
-  does, and releases it before the answer. Upstream waits 200 ms between its two
-  lock checks, so every write costs at least 200 ms. An exclusive lock (prune,
-  `forget --prune`) refuses the write with 503 `repository_locked`; the caller
-  retries. A lost lock cancels the write.
-- Under the lock, the writer lists the index files. If the listing differs from
+  `serve-read --no-lock`.
+- By default each `/tree-write` takes upstream's shared (append) lock, as
+  `restic backup` does, and releases it before the answer. Upstream waits 200 ms
+  between its two lock checks, so every write costs at least 200 ms. An exclusive
+  lock (prune, `forget --prune`) refuses the write with 503 `repository_locked`;
+  the caller retries. A lost lock cancels the write.
+- With the global `--no-lock` flag, `/tree-write` writes no lock file. The caller
+  must keep prune and forget away from every running write itself (Plori: the
+  control plane's per-Workspace queue and its writer fence before prune). `restic
+  backup --no-lock` has the same meaning in this fork; upstream ignores the flag
+  for backup.
+- Before it writes, the writer lists the index files. If the listing differs from
   the files it knows, it loads the index (upstream's incremental load). If an
   index file disappeared, a prune ran: the writer also drops its projection
   cache, its content-token index and its loaded snapshots. After its own upload

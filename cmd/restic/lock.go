@@ -42,6 +42,16 @@ func openWithReadLock(ctx context.Context, gopts global.Options, noLock bool, pr
 	return internalOpenWithLocked(ctx, gopts, noLock, false, printer)
 }
 
+// openWithoutLock opens the repository for writing without a lock file. Only a
+// caller that serializes writers with prune and forget outside restic may use it.
+func openWithoutLock(ctx context.Context, gopts global.Options, printer progress.Printer) (context.Context, *repository.Repository, func(), error) {
+	repo, err := global.OpenRepository(ctx, gopts, printer)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return ctx, repo, func() {}, nil
+}
+
 func openWithAppendLock(ctx context.Context, gopts global.Options, dryRun bool, printer progress.Printer) (context.Context, *repository.Repository, func(), error) {
 	// TODO enforce non-exclusive operations once the locking code has moved to the repository
 	return internalOpenWithLocked(ctx, gopts, dryRun, false, printer)

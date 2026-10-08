@@ -48,9 +48,6 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 			if socket == "" {
 				return errors.New("--socket is required")
 			}
-			if gopts.NoLock {
-				return errors.New("serve-write takes a lock for each write request; --no-lock is not supported")
-			}
 			if cfg.maxRequest < 1<<20 {
 				return errors.New("--max-request-bytes must be at least 1 MiB")
 			}
@@ -81,6 +78,12 @@ func newServeWriteCommand(gopts *global.Options) *cobra.Command {
 			srv, err := newServeWriteServer(ctx, open, cfg)
 			if err != nil {
 				return err
+			}
+			if gopts.NoLock {
+				// The caller serializes writes with maintenance itself (for
+				// example a control-plane queue and fence). Each write still
+				// refreshes its index before it deduplicates.
+				srv.lockRepo = noRepositoryLock
 			}
 			srv.w.content = newContentReader(reads)
 			err = serveReadListen(ctx, socket, srv)
@@ -141,6 +144,11 @@ func newServeWriteServer(ctx context.Context, open repoOpener, cfg serveWriteCon
 		}
 		return lock.Unlock, ctx, nil
 	}}, nil
+}
+
+// noRepositoryLock is lockRepo under --no-lock: no lock file is written.
+func noRepositoryLock(ctx context.Context, _ *repository.Repository) (func(), context.Context, error) {
+	return func() {}, ctx, nil
 }
 
 // begin registers a write or verify request; it fails once draining started.
